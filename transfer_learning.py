@@ -184,21 +184,32 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
+    correct_inter_2 = 0
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
         outputs, intermediate_outputs = net(inputs)
         loss = criterion(outputs, targets)
+        for intermediate_output in intermediate_outputs:
+            intermediate_loss = criterion(intermediate_output, targets)
+            loss += intermediate_loss
         loss.backward()
         optimizer.step()
         
         train_loss += loss.item()
         _, predicted = outputs.max(1)
+        _, predicted_inter_2 = intermediate_outputs[1].max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
+        correct_inter_2 += predicted_inter_2.eq(targets).sum().item()
 
         progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                      % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+
+
+        # Uncomment to visualize progress at second intermediate output
+        # progress_bar(batch_idx, len(trainloader), 'Loss INTERMEDIATE: %.3f | Acc: %.3f%% (%d/%d)'
+        #              % (train_loss/(batch_idx+1), 100.*correct_inter_2/total, correct_inter_2, total))
         if use_mlflow:
                 log_dict = {'train/loss': train_loss/(batch_idx+1), 'train/acc': 100.*correct/total}
                 mlflow.log_metrics(log_dict, step=batch_idx)
