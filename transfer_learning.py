@@ -142,10 +142,11 @@ net = create_model(
     checkpoint_path=args.initial_checkpoint,
     img_size=args.img_size)
 
+
 if args.transfer_learning:
     print('transfer learning, load t2t-vit pretrained model')
     load_for_transfer_learning(net, args.transfer_model, use_ema=True, strict=False, num_classes=args.num_classes)
-
+net.set_intermediate_heads([2, 4])
 net = net.to(device)
 
 if device == 'cuda':
@@ -186,7 +187,7 @@ def train(epoch):
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs = net(inputs)
+        outputs, intermediate_outputs = net(inputs)
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()

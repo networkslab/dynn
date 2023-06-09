@@ -125,13 +125,21 @@ class T2T_ViT(nn.Module):
                 drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
-        self.head2 = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         # Classifier head
         self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
 
         trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
 
+    '''
+    sets intermediate classifiers that are hooked after inner transformer blocks
+    '''
+    def set_intermediate_heads(self, intermediate_head_positions):
+        self.intermediate_head_positions = intermediate_head_positions
+        self.intermediate_heads = nn.ModuleList([
+            nn.Linear(self.embed_dim, self.num_classes) if self.num_classes > 0 else nn.Identity()
+            for _ in range(len(self.intermediate_head_positions))])
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
@@ -160,17 +168,23 @@ class T2T_ViT(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = x + self.pos_embed
         x = self.pos_drop(x)
-
-        for blk in self.blocks:
+        intermediate_outs = []
+        # return multiple predictions based on where the heads are.
+        for blk_idx, blk in enumerate(self.blocks):
             x = blk(x)
-
+            if blk_idx in self.intermediate_head_positions:
+                intermediate_outs.append(x)
+        intermediate_outs = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_outs))
         x = self.norm(x)
-        return x[:, 0]
+        return x[:, 0], intermediate_outs
 
     def forward(self, x):
-        x = self.forward_features(x)
+        x, intermediate_transformer_outs = self.forward_features(x)
+        intermediate_outs = []
+        for head_idx, intermediate_head in enumerate(self.intermediate_heads):
+            intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
         x = self.head(x)
-        return x
+        return x, intermediate_outs
 
 @register_model
 def t2t_vit_7(pretrained=False, **kwargs): # adopt performer for tokens to token
