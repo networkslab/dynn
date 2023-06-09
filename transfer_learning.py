@@ -82,8 +82,8 @@ if use_mlflow:
     mlflow.start_run(run_name=name)
     mlflow.log_params(cfg)
 
-#device = 'cuda' if torch.cuda.is_available() else 'cpu'
-device = 'cuda'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+# device = 'cuda'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
@@ -120,9 +120,9 @@ else:
     print('Please use cifar10 or cifar100 dataset.')
 
 trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.b, shuffle=True, num_workers=8)
+        trainset, batch_size=args.b, shuffle=True) # pass num_workers=n if multiprocessing is needed.
 testloader = torch.utils.data.DataLoader(
-        testset, batch_size=100, shuffle=False, num_workers=8)
+        testset, batch_size=100, shuffle=False)
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
@@ -156,7 +156,7 @@ if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
     assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-    checkpoint = torch.load('./checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_93.28.pth')
+    checkpoint = torch.load('./checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_93.28.pth', map_location=torch.device(device))
     net.load_state_dict(checkpoint['net'], strict=False)
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch']
@@ -166,9 +166,9 @@ criterion = nn.CrossEntropyLoss()
 # set optimizer
 if args.transfer_learning:
     print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
-    parameters = [{'params': net.module.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
-                  {'params': net.module.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
-                 {'params': net.module.head.parameters()}]
+    parameters = [{'params': net.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
+                  {'params': net.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
+                 {'params': net.head.parameters()}]
 else:
     parameters = net.parameters()
 
