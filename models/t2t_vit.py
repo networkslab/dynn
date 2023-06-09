@@ -70,7 +70,7 @@ class T2T_module(nn.Module):
             self.attention2 = Token_performer(dim=token_dim*3*3, in_dim=token_dim, kernel_ratio=0.5)
             self.project = nn.Linear(token_dim * 3 * 3, embed_dim)
 
-        elif tokens_type == 'convolution':  # just for comparison with conolution, not our model
+        elif tokens_type == 'convolution':  # just for comparison with convolution, not our model
             # for this tokens type, you need change forward as three convolution operation
             print('adopt convolution layers for tokens-to-token')
             self.soft_split0 = nn.Conv2d(3, token_dim, kernel_size=(7, 7), stride=(4, 4), padding=(2, 2))  # the 1st convolution
