@@ -1,0 +1,8 @@
+apex==0.9.10dev
+mlflow==2.4.0
+numpy==1.24.3
+PyYAML==6.0
+PyYAML==6.0
+timm==0.4.9
+torch==2.0.1
+torchvision==0.15.2
