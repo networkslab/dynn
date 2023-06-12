@@ -18,6 +18,8 @@ def collect_metrics(name,
     cheating_correct = 0
     list_cheating_correct_inter = [0 for _ in range(net.num_gates)]
     list_correct_inter = [0 for _ in range(net.num_gates)]
+    store_all_preds= []
+    store_all_pmax = []
     for batch_idx, (inputs, targets) in enumerate(loader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
@@ -67,3 +69,4 @@ def collect_metrics(name,
                     name + '/cheating_acc' +
                     str(i)] = 100. * list_cheating_correct_inter[i] / total
             mlflow.log_metrics(log_dict, step=batch_idx + (epoch * len(loader)))
+        return {'acc':100. * correct / total}
