@@ -238,7 +238,7 @@ def train(epoch):
                 log_dict = {'train/loss': train_loss/(batch_idx+1), 'train/acc': 100.*correct/total}
                 for i, _ in enumerate(list_correct_inter): 
                     log_dict['train/acc'+str(i)] = 100.*list_correct_inter[i]/total
-                mlflow.log_metrics(log_dict, step=batch_idx)
+                mlflow.log_metrics(log_dict, step=batch_idx+(epoch*len(trainloader)))
 
 def test(epoch):
     global best_acc
@@ -268,8 +268,8 @@ def test(epoch):
         if use_mlflow:
                 log_dict = {'test/loss': test_loss/(batch_idx+1), 'test/acc': 100.*correct/total}
                 for i, _ in enumerate(list_correct_inter): 
-                    log_dict['train/acc'+str(i)] = 100.*list_correct_inter[i]/total
-                mlflow.log_metrics(log_dict, step=batch_idx)
+                    log_dict['test/acc'+str(i)] = 100.*list_correct_inter[i]/total
+                mlflow.log_metrics(log_dict, step=batch_idx+(epoch*len(testloader)))
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:
@@ -286,9 +286,10 @@ def test(epoch):
     if use_mlflow:
             log_dict= {'best/test_acc': acc}
             mlflow.log_metrics(log_dict)
-            mlflow.end_run()
+            
 
 for epoch in range(start_epoch, start_epoch+60):
     train(epoch)
     test(epoch)
     scheduler.step()
+mlflow.end_run()
