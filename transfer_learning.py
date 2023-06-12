@@ -206,6 +206,8 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
+    cheating_correct = 0
+    list_cheating_correct_inter= [0 for _ in transformer_layer_gating]
     list_correct_inter= [0 for _ in transformer_layer_gating]
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
@@ -222,22 +224,29 @@ def train(epoch):
         _, predicted = outputs.max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
+        
+        correctly_classified = torch.full(predicted.eq(targets).shape, False).to(device)
         for i, _ in enumerate(list_correct_inter):
             _, predicted_inter = intermediate_outputs[i].max(1)
+            correctly_classified += predicted_inter.eq(targets) # getting all the corrects we can
+            list_cheating_correct_inter[i] += correctly_classified.sum().item()
             list_correct_inter[i] += predicted_inter.eq(targets).sum().item()
             
-
-        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                     % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+        correctly_classified += predicted.eq(targets) # getting all the corrects we can
+        cheating_correct += correctly_classified.sum().item()
+        
+        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d) | Cheating: %.3f%%'
+                     % (train_loss/(batch_idx+1), 100.*correct/total, correct, total, 100.*cheating_correct/total))
 
 
         # Uncomment to visualize progress at second intermediate output
         # progress_bar(batch_idx, len(trainloader), 'Loss INTERMEDIATE: %.3f | Acc: %.3f%% (%d/%d)'
         #              % (train_loss/(batch_idx+1), 100.*correct_inter_2/total, correct_inter_2, total))
         if use_mlflow:
-                log_dict = {'train/loss': train_loss/(batch_idx+1), 'train/acc': 100.*correct/total}
+                log_dict = {'train/loss': train_loss/(batch_idx+1), 'train/acc': 100.*correct/total, 'train/cheating_acc': 100.*cheating_correct/total}
                 for i, _ in enumerate(list_correct_inter): 
                     log_dict['train/acc'+str(i)] = 100.*list_correct_inter[i]/total
+                    log_dict['train/cheating_acc'+str(i)] = 100.*list_cheating_correct_inter[i]/total
                 mlflow.log_metrics(log_dict, step=batch_idx+(epoch*len(trainloader)))
 
 def test(epoch):
@@ -245,6 +254,8 @@ def test(epoch):
     net.eval()
     test_loss = 0
     correct = 0
+    cheating_correct = 0
+    cheating_threshold_correc = 0
     total = 0
     list_correct_inter= [0 for _ in transformer_layer_gating]
     with torch.no_grad():
@@ -259,10 +270,15 @@ def test(epoch):
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
+
+            correctly_classified = torch.full(predicted.eq(targets).shape, False).to(device)
             for i, _ in enumerate(list_correct_inter):
                 _, predicted_inter = intermediate_outputs[i].max(1)
-                list_correct_inter[i] += predicted_inter.eq(targets).sum().item()
+                correctly_classified += predicted_inter.eq(targets) # getting all the corrects we can
+                list_correct_inter[i] += correctly_classified.sum().item()
             
+            correctly_classified += predicted.eq(targets) # getting all the corrects we can
+
             progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                          % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
         if use_mlflow:
