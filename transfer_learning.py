@@ -69,7 +69,7 @@ parser.add_argument('--transfer-model', type=str, default=None,
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--ckp-path', type=str, default='checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_93.28.pth',
-                    help='path to pretrain transfer learning model')
+                    help='path to checkpoint transfer learning model')
 # us
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
