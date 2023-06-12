@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
-
+import numpy as np
 import torchvision
 import torchvision.transforms as transforms
 
@@ -68,9 +68,15 @@ parser.add_argument('--transfer-model', type=str, default=None,
                     help='Path to pretrained model for transfer learning')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
+parser.add_argument('--ckp-path', type=str, default='checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_93.28.pth',
+                    help='path to checkpoint transfer learning model')
 # us
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
+
+freeze_backbone = True
+transformer_layer_gating = [2, 4]
+
 
 cfg = vars(args)
 use_mlflow = args.use_mlflow
@@ -146,7 +152,8 @@ net = create_model(
 if args.transfer_learning:
     print('transfer learning, load t2t-vit pretrained model')
     load_for_transfer_learning(net, args.transfer_model, use_ema=True, strict=False, num_classes=args.num_classes)
-net.set_intermediate_heads([2, 4])
+
+net.set_intermediate_heads(transformer_layer_gating)
 net = net.to(device)
 
 if device == 'cuda':
@@ -157,7 +164,7 @@ if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
     assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-    checkpoint = torch.load('./checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_93.28.pth', map_location=torch.device(device))
+    checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
     net.load_state_dict(checkpoint['net'], strict=False)
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch']
@@ -165,7 +172,22 @@ if args.resume:
 criterion = nn.CrossEntropyLoss()
 
 # set optimizer
-if args.transfer_learning:
+if freeze_backbone:
+
+    model_parameters = filter(lambda p: p.requires_grad, net.parameters())
+    from_num_params = sum([np.prod(p.size()) for p in model_parameters])
+    # set everything to not trainable.
+    for param in net.module.parameters():
+        param.requires_grad = False
+    # set the intermediate_heads params to trainable.
+    for param in net.module.intermediate_heads.parameters(): 
+        param.requires_grad = True
+    parameters = net.parameters()
+
+    model_parameters = filter(lambda p: p.requires_grad, net.parameters())
+    to_num_params = sum([np.prod(p.size()) for p in model_parameters])
+    print('freeze the t2t module: from {} to {} trainable params.'.format(from_num_params,to_num_params ))
+elif args.transfer_learning:
     print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
     parameters = [{'params': net.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
                   {'params': net.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
@@ -184,12 +206,12 @@ def train(epoch):
     train_loss = 0
     correct = 0
     total = 0
-    correct_inter_2 = 0
+    list_correct_inter= [0 for _ in transformer_layer_gating]
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
         outputs, intermediate_outputs = net(inputs)
-        loss = criterion(outputs, targets)
+        loss = criterion(outputs, targets) # the grad_fn of this loss should be None
         for intermediate_output in intermediate_outputs:
             intermediate_loss = criterion(intermediate_output, targets)
             loss += intermediate_loss
@@ -198,10 +220,12 @@ def train(epoch):
         
         train_loss += loss.item()
         _, predicted = outputs.max(1)
-        _, predicted_inter_2 = intermediate_outputs[1].max(1)
         total += targets.size(0)
         correct += predicted.eq(targets).sum().item()
-        correct_inter_2 += predicted_inter_2.eq(targets).sum().item()
+        for i, _ in enumerate(list_correct_inter):
+            _, predicted_inter = intermediate_outputs[i].max(1)
+            list_correct_inter[i] += predicted_inter.eq(targets).sum().item()
+            
 
         progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                      % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
@@ -212,6 +236,8 @@ def train(epoch):
         #              % (train_loss/(batch_idx+1), 100.*correct_inter_2/total, correct_inter_2, total))
         if use_mlflow:
                 log_dict = {'train/loss': train_loss/(batch_idx+1), 'train/acc': 100.*correct/total}
+                for i, _ in enumerate(list_correct_inter): 
+                    log_dict['train/acc'+str(i)] = 100.*list_correct_inter[i]/total
                 mlflow.log_metrics(log_dict, step=batch_idx)
 
 def test(epoch):
@@ -220,20 +246,30 @@ def test(epoch):
     test_loss = 0
     correct = 0
     total = 0
+    list_correct_inter= [0 for _ in transformer_layer_gating]
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs = net(inputs)
+            outputs, intermediate_outputs = net(inputs)
             loss = criterion(outputs, targets)
-
+            for intermediate_output in intermediate_outputs:
+                intermediate_loss = criterion(intermediate_output, targets)
+                loss += intermediate_loss
             test_loss += loss.item()
             _, predicted = outputs.max(1)
             total += targets.size(0)
             correct += predicted.eq(targets).sum().item()
-
+            for i, _ in enumerate(list_correct_inter):
+                _, predicted_inter = intermediate_outputs[i].max(1)
+                list_correct_inter[i] += predicted_inter.eq(targets).sum().item()
+            
             progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
                          % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
-
+        if use_mlflow:
+                log_dict = {'test/loss': test_loss/(batch_idx+1), 'test/acc': 100.*correct/total}
+                for i, _ in enumerate(list_correct_inter): 
+                    log_dict['train/acc'+str(i)] = 100.*list_correct_inter[i]/total
+                mlflow.log_metrics(log_dict, step=batch_idx)
     # Save checkpoint.
     acc = 100.*correct/total
     if acc > best_acc:

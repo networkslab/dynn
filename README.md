@@ -9,3 +9,8 @@ To transfer learn T2T-ViT-7 to CIFAR-10, you need to run `transfer_learning.py` 
 python transfer_learing --lr 0.05 --b 64 --num-classes 10 --img-size 224 --transfer-learning True --transfer-model model_weights/71.7_T2T_ViT_7.pth.tar
 ```
 
+## Run mlflow
+
+``
+mlflow server --backend-store-uri ./mlruns --port 5002
+''
