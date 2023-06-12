@@ -170,32 +170,22 @@ class T2T_ViT(nn.Module):
         x = x + self.pos_embed
         x = self.pos_drop(x)
         intermediate_outs = []
-        codes = []
         # return multiple predictions based on where the heads are.
         for blk_idx, blk in enumerate(self.blocks):
             x, act_code = blk.forward_get_code(x)
             if blk_idx in self.intermediate_head_positions:
                 intermediate_outs.append(x)
-                codes.append(act_code)
         intermediate_outs = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_outs))
         x = self.norm(x)
-        return x[:, 0], intermediate_outs, codes
+        return x[:, 0], intermediate_outs
 
     def forward(self, x):
-        x, intermediate_transformer_outs, _ = self._forward_features(x)
+        x, intermediate_transformer_outs = self._forward_features(x)
         intermediate_outs = []
         for head_idx, intermediate_head in enumerate(self.intermediate_heads):
             intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
         x = self.head(x)
         return x, intermediate_outs
-
-    def forward_get_code(self, x):
-        x, intermediate_transformer_outs, activation_codes = self._forward_features(x)
-        intermediate_outs = []
-        for head_idx, intermediate_head in enumerate(self.intermediate_heads):
-            intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
-        x = self.head(x)
-        return x, intermediate_outs, activation_codes
 
 @register_model
 def t2t_vit_7(pretrained=False, **kwargs): # adopt performer for tokens to token
