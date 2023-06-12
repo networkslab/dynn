@@ -17,6 +17,7 @@ import torchvision.transforms as transforms
 import os
 import argparse
 import mlflow
+from collect_metric_iter import collect_metrics
 
 from models import *
 from timm.models import *
@@ -75,7 +76,7 @@ parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflo
 args = parser.parse_args()
 
 freeze_backbone = True
-transformer_layer_gating = [2, 4]
+transformer_layer_gating = [0,1,2,3,4,5]
 
 
 cfg = vars(args)
@@ -199,95 +200,23 @@ optimizer = optim.SGD(parameters, lr=args.lr,
                       momentum=0.9, weight_decay=args.wd)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
-# Training
 def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
-    train_loss = 0
-    correct = 0
-    total = 0
-    cheating_correct = 0
-    list_cheating_correct_inter= [0 for _ in transformer_layer_gating]
-    list_correct_inter= [0 for _ in transformer_layer_gating]
-    for batch_idx, (inputs, targets) in enumerate(trainloader):
-        inputs, targets = inputs.to(device), targets.to(device)
-        optimizer.zero_grad()
-        outputs, intermediate_outputs = net(inputs)
-        loss = criterion(outputs, targets) # the grad_fn of this loss should be None
-        for intermediate_output in intermediate_outputs:
-            intermediate_loss = criterion(intermediate_output, targets)
-            loss += intermediate_loss
-        loss.backward()
-        optimizer.step()
-        
-        train_loss += loss.item()
-        _, predicted = outputs.max(1)
-        total += targets.size(0)
-        correct += predicted.eq(targets).sum().item()
-        
-        correctly_classified = torch.full(predicted.eq(targets).shape, False).to(device)
-        for i, _ in enumerate(list_correct_inter):
-            _, predicted_inter = intermediate_outputs[i].max(1)
-            correctly_classified += predicted_inter.eq(targets) # getting all the corrects we can
-            list_cheating_correct_inter[i] += correctly_classified.sum().item()
-            list_correct_inter[i] += predicted_inter.eq(targets).sum().item()
-            
-        correctly_classified += predicted.eq(targets) # getting all the corrects we can
-        cheating_correct += correctly_classified.sum().item()
-        
-        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d) | Cheating: %.3f%%'
-                     % (train_loss/(batch_idx+1), 100.*correct/total, correct, total, 100.*cheating_correct/total))
-
-
-        # Uncomment to visualize progress at second intermediate output
-        # progress_bar(batch_idx, len(trainloader), 'Loss INTERMEDIATE: %.3f | Acc: %.3f%% (%d/%d)'
-        #              % (train_loss/(batch_idx+1), 100.*correct_inter_2/total, correct_inter_2, total))
-        if use_mlflow:
-                log_dict = {'train/loss': train_loss/(batch_idx+1), 'train/acc': 100.*correct/total, 'train/cheating_acc': 100.*cheating_correct/total}
-                for i, _ in enumerate(list_correct_inter): 
-                    log_dict['train/acc'+str(i)] = 100.*list_correct_inter[i]/total
-                    log_dict['train/cheating_acc'+str(i)] = 100.*list_cheating_correct_inter[i]/total
-                mlflow.log_metrics(log_dict, step=batch_idx+(epoch*len(trainloader)))
+    if device =='cuda':
+        metrics = collect_metrics('train', epoch, trainloader,net.module, optimizer,criterion, device, use_mlflow=True)
+    else:
+        metrics = collect_metrics('train', epoch, trainloader,net.module, optimizer,criterion, device, use_mlflow=True)
 
 def test(epoch):
     global best_acc
     net.eval()
-    test_loss = 0
-    correct = 0
-    cheating_correct = 0
-    cheating_threshold_correc = 0
-    total = 0
-    list_correct_inter= [0 for _ in transformer_layer_gating]
-    with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
-            inputs, targets = inputs.to(device), targets.to(device)
-            outputs, intermediate_outputs = net(inputs)
-            loss = criterion(outputs, targets)
-            for intermediate_output in intermediate_outputs:
-                intermediate_loss = criterion(intermediate_output, targets)
-                loss += intermediate_loss
-            test_loss += loss.item()
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
+    if device =='cuda':
+        metrics = collect_metrics('test', epoch, trainloader,net.module, optimizer,criterion, device, use_mlflow=True)
+    else:
+        metrics = collect_metrics('test', epoch, trainloader,net.module, optimizer,criterion, device, use_mlflow=True)
 
-            correctly_classified = torch.full(predicted.eq(targets).shape, False).to(device)
-            for i, _ in enumerate(list_correct_inter):
-                _, predicted_inter = intermediate_outputs[i].max(1)
-                correctly_classified += predicted_inter.eq(targets) # getting all the corrects we can
-                list_correct_inter[i] += correctly_classified.sum().item()
-            
-            correctly_classified += predicted.eq(targets) # getting all the corrects we can
-
-            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                         % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
-        if use_mlflow:
-                log_dict = {'test/loss': test_loss/(batch_idx+1), 'test/acc': 100.*correct/total}
-                for i, _ in enumerate(list_correct_inter): 
-                    log_dict['test/acc'+str(i)] = 100.*list_correct_inter[i]/total
-                mlflow.log_metrics(log_dict, step=batch_idx+(epoch*len(testloader)))
-    # Save checkpoint.
-    acc = 100.*correct/total
+    acc = metrics['acc']
     if acc > best_acc:
         print('Saving..')
         state = {
