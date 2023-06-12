@@ -171,7 +171,6 @@ if args.resume:
 
 criterion = nn.CrossEntropyLoss()
 
-freeze_backbone = True
 # set optimizer
 if freeze_backbone:
 
