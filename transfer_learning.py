@@ -177,10 +177,10 @@ if freeze_backbone:
     model_parameters = filter(lambda p: p.requires_grad, net.parameters())
     from_num_params = sum([np.prod(p.size()) for p in model_parameters])
     # set everything to not trainable.
-    for param in net.module.parameters():
+    for param in net.parameters():
         param.requires_grad = False
     # set the intermediate_heads params to trainable.
-    for param in net.module.intermediate_heads.parameters(): 
+    for param in net.intermediate_heads.parameters():
         param.requires_grad = True
     parameters = net.parameters()
 
