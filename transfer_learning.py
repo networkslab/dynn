@@ -309,6 +309,7 @@ def train(epoch):
             stored_per_x, stored_metrics)
         cheating_acc = 100. * stored_metrics['cheating_correct'] / total
         acc = 100. * correct / total
+        ece =  stored_metrics['ECE'] / total
         entropy = np.mean(stored_per_x['final_entropy'])
         progress_bar(
             batch_idx, len(trainloader),
@@ -319,6 +320,7 @@ def train(epoch):
             log_dict = {
                 'train/loss': epoch_loss / (batch_idx + 1),
                 'train/acc': acc,
+                'train/ece':ece,
                 'train/cheating_acc': cheating_acc,
                 'train/entropy': entropy,
             }
@@ -327,9 +329,11 @@ def train(epoch):
                 acc_cheating_gate = 100. * stored_metrics[
                     'correct_cheating_per_gate'][g] / total
                 entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
+                ece_gate = stored_metrics['ece_per_gate'][g] / total
                 log_dict['train/acc' + str(g)] = acc_gate
                 log_dict['train/cheating_acc' + str(g)] = acc_cheating_gate
                 log_dict['train/entropy' + str(g)] = entropy_per_gate
+                log_dict['train/ece' + str(g)] = ece_gate
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
         
@@ -363,9 +367,10 @@ def test(epoch, threshold):
             stored_metrics = evaluate_with_gating(threshold,outputs_logits,intermediate_outputs, targets, stored_metrics )
             cheating_acc = 100. * stored_metrics['cheating_correct'] / total
             acc = 100. * correct / total
+            ece =  stored_metrics['ECE'] / total
             entropy = np.mean(stored_per_x['final_entropy'])
             gated_acc = 100. * stored_metrics['gated_correct'] / total
-            gated_cost = 100. * stored_metrics['total_cost'] / total
+            gated_cost = stored_metrics['total_cost'] / total
             progress_bar(
                 batch_idx, len(testloader),
                 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
@@ -375,6 +380,7 @@ def test(epoch, threshold):
             log_dict = {
                 'test/loss': test_loss / (batch_idx + 1),
                 'test/acc': acc,
+                'test/ece': ece,
                 'test/cheating_acc': cheating_acc,
                 'test/entropy': entropy,
                 'test/gated_acc': gated_acc,
@@ -386,13 +392,15 @@ def test(epoch, threshold):
                     'correct_cheating_per_gate'][g] / total
                 entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
                 gated_acc_per_gate = 100. * stored_metrics['correct_per_gate'][g] / total
-                gated_cost_per_gate = 100. * stored_metrics['cost_per_gate'][g] / total
+                gated_cost_per_gate = stored_metrics['cost_per_gate'][g] / total
+                ece_gate = stored_metrics['ece_per_gate'][g] / total
                 log_dict['test/acc' + str(g)] = acc_gate
                 log_dict['test/cheating_acc' + str(g)] = acc_cheating_gate
                 log_dict['test/entropy' + str(g)] = entropy_per_gate
                 log_dict['test/gated_acc' + str(g)] = gated_acc_per_gate
                 log_dict['test/gated_cost' + str(g)] = gated_cost_per_gate
                 log_dict['test/thresh' + str(g)] = threshold[g]
+                log_dict['test/ece' + str(g)] = ece_gate
 
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
