@@ -17,7 +17,8 @@ import torchvision.transforms as transforms
 import os
 import argparse
 import mlflow
-from collect_metric_iter import collect_metrics, compute_optimal_threshold, evaluate_with_gating, get_empty_storage_metrics, get_loss
+from collect_metric_iter import collect_metrics, compute_optimal_threshold, evaluate_with_gating, get_empty_storage_metrics
+from learning_helper import get_loss
 
 from models import *
 from timm.models import *
@@ -199,6 +200,7 @@ else:
 optimizer = optim.SGD(parameters, lr=args.lr,
                       momentum=0.9, weight_decay=args.wd)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
+
 
 
 def train(epoch):

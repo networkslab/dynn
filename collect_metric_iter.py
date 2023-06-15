@@ -148,18 +148,6 @@ def evaluate_with_gating(threshold, outputs_logits, intermediate_outputs,
     return stored_metrics
 
 
-def get_loss(inputs, targets, optimizer, criterion, net):
-
-    optimizer.zero_grad()
-    outputs_logits, intermediate_outputs = net(inputs)
-    loss = criterion(
-        outputs_logits,
-        targets)  # the grad_fn of this loss should be None if frozen
-    for intermediate_output in intermediate_outputs:
-        intermediate_loss = criterion(intermediate_output, targets)
-        loss += intermediate_loss
-    return loss, outputs_logits, intermediate_outputs
-
 
 def get_empty_storage_metrics(num_gates):
     stored_per_x = {
