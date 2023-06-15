@@ -16,6 +16,7 @@ import numpy as np
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
+from .custom_GELU import CustomGELU
 
 def _cfg(url='', **kwargs):
     return {
@@ -122,7 +123,7 @@ class T2T_ViT(nn.Module):
         self.blocks = nn.ModuleList([
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=CustomGELU)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
         # Classifier head
@@ -161,7 +162,7 @@ class T2T_ViT(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x):
+    def _forward_features(self, x):
         B = x.shape[0]
         x = self.tokens_to_token(x)
 
@@ -172,7 +173,7 @@ class T2T_ViT(nn.Module):
         intermediate_outs = []
         # return multiple predictions based on where the heads are.
         for blk_idx, blk in enumerate(self.blocks):
-            x = blk(x)
+            x, act_code = blk.forward_get_code(x)
             if blk_idx in self.intermediate_head_positions:
                 intermediate_outs.append(x)
         intermediate_outs = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_outs))
@@ -180,7 +181,7 @@ class T2T_ViT(nn.Module):
         return x[:, 0], intermediate_outs
 
     def forward(self, x):
-        x, intermediate_transformer_outs = self.forward_features(x)
+        x, intermediate_transformer_outs = self._forward_features(x)
         intermediate_outs = []
         for head_idx, intermediate_head in enumerate(self.intermediate_heads):
             intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
