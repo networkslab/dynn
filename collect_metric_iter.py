@@ -1,5 +1,6 @@
 # Training
 
+from ploting_util import generate_thresholding_plots
 from utils import progress_bar
 import torch
 import mlflow
@@ -11,9 +12,15 @@ from sklearn import calibration
 def free(torch_tensor):
     return torch_tensor.cpu().detach().numpy()
 
-
-def compute_optimal_threshold(all_p_max, list_correct_gate):
+# define a threshold such that each layer tries to hit the target accuracy
+def compute_optimal_threshold(threhsold_name, all_p_max, list_correct_gate, target_acc=1):
     list_optimal_threshold = []
+    min_x = 10  # min x to average the accuracy
+    # store things for plots
+    all_sorted_p_max = []
+    all_cumul_acc = []
+    all_correct = []
+
     for g, p_max_per_gate in enumerate(all_p_max):
         correct = list_correct_gate[
             g]  # all correclty classified x at the gate
@@ -25,13 +32,26 @@ def compute_optimal_threshold(all_p_max, list_correct_gate):
         cumall_correct = np.cumsum(
             sorted_correct
         )  # cumul the quantity of correctly classified at each threshold
-        min_x = 30  # min x to average the accuracy
-        cumall_correct = cumall_correct[min_x:]
-        inverse_cost = [c / (i + min_x) for i, c in enumerate(cumall_correct)
+        
+        cumul_acc = [c / (i +1) for i, c in enumerate(cumall_correct)
                         ]  # inverse cost is the accuracy for preset threshold
-        optimal_index = np.argmax(inverse_cost) + min_x
-        threshold_g = sorted_p_max[optimal_index]
+        
+        all_sorted_p_max.append(list(sorted_p_max))
+        all_cumul_acc.append(cumul_acc)
+        all_correct.append(list(sorted_correct))
+
+        
+        cumul_acc = cumul_acc[min_x:]
+        indices_target_acc = np.argwhere(np.array(cumul_acc)>target_acc)
+        if len(indices_target_acc) == 0: # if no one can hit the accuracy, we set the threshold to 1
+            threshold_g = 1
+            optimal_index = np.argmax(cumul_acc) + min_x
+        else:
+            optimal_index = int(indices_target_acc[0]) + min_x
+            threshold_g = sorted_p_max[optimal_index]
         list_optimal_threshold.append(threshold_g)
+
+    generate_thresholding_plots(threhsold_name, all_sorted_p_max, all_cumul_acc, all_correct, min_x, target_acc, list_optimal_threshold)
     return list_optimal_threshold
 
 
@@ -60,7 +80,7 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
     p_max, entropy, cal = compute_uncertainty_metrics(outputs_logits, targets)
     stored_per_x['final_p_max'] += p_max
     stored_per_x['final_entropy'] += entropy
-    stored_metrics['ECE'] +=cal
+    stored_metrics['ece'] += cal
     # different accuracy to be cumulated
     correctly_classified = torch.full(predicted.eq(targets).shape,
                                       False).to(device)
@@ -80,7 +100,7 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
         stored_per_x['list_correct_per_gate'][g] += list(free(correct_gate))
         stored_per_x['p_max_per_gate'][g] += p_max
         stored_per_x['entropy_per_gate'][g] += entropy
-        stored_metrics['ece_per_gate'][g] +=cal
+        stored_metrics['ece_per_gate'][g] += cal
 
     correctly_classified += predicted.eq(
         targets)  # getting all the corrects we can
@@ -100,7 +120,7 @@ def evaluate_with_gating(threshold, outputs_logits, intermediate_outputs,
     for g, thresh in enumerate(threshold):
         p_max, _, cal = compute_uncertainty_metrics(intermediate_outputs[g],
                                                     targets)
-        early_exit_ind = list(np.argwhere(p_max > thresh).flatten())
+        early_exit_ind = list(np.argwhere(np.array(p_max) > thresh).flatten())
         actual_early_exit_ind = []
         for ind in early_exit_ind:
             if ind in x_index:  # if that index hasnt been classified yet by an earlier gates
@@ -151,7 +171,7 @@ def get_empty_storage_metrics(num_gates):
     }
     stored_metrics = {
         'acc': 0,
-        'ECE':0,
+        'ece': 0,
         'gated_correct': 0,
         'total_cost': 0,
         'cheating_correct': 0,
