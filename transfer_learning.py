@@ -344,8 +344,7 @@ def train(epoch):
 
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
-        if batch_idx > 50:
-            break
+        
     threhsold_name = 'train_epoch{}'.format(epoch)
     threshold = compute_optimal_threshold(
         threhsold_name,
