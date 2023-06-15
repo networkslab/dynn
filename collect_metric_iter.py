@@ -118,7 +118,7 @@ def evaluate_with_gating(threshold, outputs_logits, intermediate_outputs,
                                -1.0).to(outputs_logits.device)
     num_classifiction_per_gates = []
     for g, thresh in enumerate(threshold):
-        p_max, _, cal = compute_uncertainty_metrics(intermediate_outputs[g],
+        p_max, _, _ = compute_uncertainty_metrics(intermediate_outputs[g],
                                                     targets)
         early_exit_ind = list(np.argwhere(np.array(p_max) > thresh).flatten())
         actual_early_exit_ind = []
