@@ -74,8 +74,8 @@ parser.add_argument('--ckp-path', type=str, default='checkpoint/checkpoint_cifar
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
 
-freeze_backbone = True
-transformer_layer_gating = [2, 4]
+freeze_backbone = False
+transformer_layer_gating = []
 
 
 cfg = vars(args)
@@ -177,10 +177,10 @@ if freeze_backbone:
     model_parameters = filter(lambda p: p.requires_grad, net.parameters())
     from_num_params = sum([np.prod(p.size()) for p in model_parameters])
     # set everything to not trainable.
-    for param in net.parameters():
+    for param in net.module.parameters():
         param.requires_grad = False
     # set the intermediate_heads params to trainable.
-    for param in net.intermediate_heads.parameters():
+    for param in net.module.intermediate_heads.parameters():
         param.requires_grad = True
     parameters = net.parameters()
 
@@ -189,9 +189,9 @@ if freeze_backbone:
     print('freeze the t2t module: from {} to {} trainable params.'.format(from_num_params,to_num_params ))
 elif args.transfer_learning:
     print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
-    parameters = [{'params': net.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
-                  {'params': net.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
-                 {'params': net.head.parameters()}]
+    parameters = [{'params': net.module.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
+                  {'params': net.module.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
+                 {'params': net.module.head.parameters()}]
 else:
     parameters = net.parameters()
 
