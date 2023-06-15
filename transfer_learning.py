@@ -17,6 +17,7 @@ import torchvision.transforms as transforms
 import os
 import argparse
 import mlflow
+from collect_metric_iter import collect_metrics, compute_optimal_threshold, evaluate_with_gating, get_empty_storage_metrics, get_loss
 
 from models import *
 from timm.models import *
@@ -68,14 +69,14 @@ parser.add_argument('--transfer-model', type=str, default=None,
                     help='Path to pretrained model for transfer learning')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--ckp-path', type=str, default='checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_93.28.pth',
+parser.add_argument('--ckp-path', type=str, default='checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
                     help='path to checkpoint transfer learning model')
 # us
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
 
-freeze_backbone = False
-transformer_layer_gating = []
+freeze_backbone = True
+transformer_layer_gating = [0,1,2,3,4,5]
 
 
 cfg = vars(args)
@@ -199,79 +200,136 @@ optimizer = optim.SGD(parameters, lr=args.lr,
                       momentum=0.9, weight_decay=args.wd)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
-# Training
+
 def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
-    train_loss = 0
+    epoch_loss = 0
     correct = 0
     total = 0
-    list_correct_inter= [0 for _ in transformer_layer_gating]
+
+    stored_per_x, stored_metrics = get_empty_storage_metrics(
+        len(transformer_layer_gating))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
-        optimizer.zero_grad()
-        outputs, intermediate_outputs = net(inputs)
-        loss = criterion(outputs, targets) # the grad_fn of this loss should be None
-        for intermediate_output in intermediate_outputs:
-            intermediate_loss = criterion(intermediate_output, targets)
-            loss += intermediate_loss
+        loss, outputs_logits, intermediate_outputs = get_loss(
+            inputs, targets, optimizer, criterion, net)
+
         loss.backward()
         optimizer.step()
-        
-        train_loss += loss.item()
-        _, predicted = outputs.max(1)
-        total += targets.size(0)
-        correct += predicted.eq(targets).sum().item()
-        for i, _ in enumerate(list_correct_inter):
-            _, predicted_inter = intermediate_outputs[i].max(1)
-            list_correct_inter[i] += predicted_inter.eq(targets).sum().item()
-            
+        epoch_loss += loss.item()
+        stored_per_x, stored_metrics, correct, total = collect_metrics(
+            outputs_logits, intermediate_outputs,
+            len(transformer_layer_gating), targets, total, correct, device,
+            stored_per_x, stored_metrics)
 
-        progress_bar(batch_idx, len(trainloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                     % (train_loss/(batch_idx+1), 100.*correct/total, correct, total))
+        # compute metrics to display
+        acc = 100. * correct / total
+        cheating_acc = 100. * stored_metrics['cheating_correct'] / total
+        ece = stored_metrics['ece'] / total
+        entropy = np.mean(stored_per_x['final_entropy'])
+        loss = epoch_loss / (batch_idx + 1)
+        progress_bar(
+            batch_idx, len(trainloader),
+            'Loss: %.3f | Acc: %.3f%% (%d/%d) | Cheating: %.3f%%' %
+            (loss, acc, correct, total, cheating_acc))
 
-
-        # Uncomment to visualize progress at second intermediate output
-        # progress_bar(batch_idx, len(trainloader), 'Loss INTERMEDIATE: %.3f | Acc: %.3f%% (%d/%d)'
-        #              % (train_loss/(batch_idx+1), 100.*correct_inter_2/total, correct_inter_2, total))
         if use_mlflow:
-                log_dict = {'train/loss': train_loss/(batch_idx+1), 'train/acc': 100.*correct/total}
-                for i, _ in enumerate(list_correct_inter): 
-                    log_dict['train/acc'+str(i)] = 100.*list_correct_inter[i]/total
-                mlflow.log_metrics(log_dict, step=batch_idx)
+
+            log_dict = {
+                'train/loss': loss,
+                'train/acc': acc,
+                'train/ece': ece,
+                'train/cheating_acc': cheating_acc,
+                'train/entropy': entropy,
+            }
+            for g in range(len(transformer_layer_gating)):
+                # compute metrics to display
+                acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total
+                acc_cheating_gate = 100. * stored_metrics[
+                    'correct_cheating_per_gate'][g] / total
+                ece_gate = stored_metrics['ece_per_gate'][g] / total
+                entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
+
+                log_dict['train/acc' + str(g)] = acc_gate
+                log_dict['train/cheating_acc' + str(g)] = acc_cheating_gate
+                log_dict['train/ece' + str(g)] = ece_gate
+                log_dict['train/entropy' + str(g)] = entropy_per_gate
+
+            mlflow.log_metrics(log_dict,
+                               step=batch_idx + (epoch * len(trainloader)))
+        
+    threhsold_name = 'train_epoch{}'.format(epoch)
+    threshold = compute_optimal_threshold(
+        threhsold_name,
+        stored_per_x['p_max_per_gate'],
+        stored_per_x['list_correct_per_gate'],
+        target_acc=acc / 100.)
+    stored_metrics['acc'] = acc
+    stored_metrics['optim_threshold'] = threshold
+    return stored_metrics
+
 
 def test(epoch):
+
     global best_acc
     net.eval()
     test_loss = 0
     correct = 0
     total = 0
-    list_correct_inter= [0 for _ in transformer_layer_gating]
+    stored_per_x, stored_metrics = get_empty_storage_metrics(
+        len(transformer_layer_gating))
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs, intermediate_outputs = net(inputs)
-            loss = criterion(outputs, targets)
-            for intermediate_output in intermediate_outputs:
-                intermediate_loss = criterion(intermediate_output, targets)
-                loss += intermediate_loss
+            loss, outputs_logits, intermediate_outputs = get_loss(
+                inputs, targets, optimizer, criterion, net)
             test_loss += loss.item()
-            _, predicted = outputs.max(1)
-            total += targets.size(0)
-            correct += predicted.eq(targets).sum().item()
-            for i, _ in enumerate(list_correct_inter):
-                _, predicted_inter = intermediate_outputs[i].max(1)
-                list_correct_inter[i] += predicted_inter.eq(targets).sum().item()
+            stored_per_x, stored_metrics, correct, total = collect_metrics(
+                outputs_logits, intermediate_outputs,
+                len(transformer_layer_gating), targets, total, correct, device,
+                stored_per_x, stored_metrics)
+
             
-            progress_bar(batch_idx, len(testloader), 'Loss: %.3f | Acc: %.3f%% (%d/%d)'
-                         % (test_loss/(batch_idx+1), 100.*correct/total, correct, total))
+            cheating_acc = 100. * stored_metrics['cheating_correct'] / total
+            acc = 100. * correct / total
+            ece = stored_metrics['ece'] / total
+            entropy = np.mean(stored_per_x['final_entropy'])
+            loss = test_loss / (batch_idx + 1)
+            progress_bar(
+                batch_idx, len(testloader),
+                'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
+                (loss, acc, correct, total))
         if use_mlflow:
-                log_dict = {'test/loss': test_loss/(batch_idx+1), 'test/acc': 100.*correct/total}
-                for i, _ in enumerate(list_correct_inter): 
-                    log_dict['train/acc'+str(i)] = 100.*list_correct_inter[i]/total
-                mlflow.log_metrics(log_dict, step=batch_idx)
+            log_dict = {
+                'test/loss': loss,
+                'test/acc': acc,
+                'test/ece': ece,
+                'test/cheating_acc': cheating_acc,
+                'test/entropy': entropy
+            }
+            for g in range(len(transformer_layer_gating)):
+                acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total
+                acc_cheating_gate = 100. * stored_metrics[
+                    'correct_cheating_per_gate'][g] / total
+                entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
+                ece_gate = stored_metrics['ece_per_gate'][g] / total
+                log_dict['test/acc' + str(g)] = acc_gate
+                log_dict['test/cheating_acc' + str(g)] = acc_cheating_gate
+                log_dict['test/entropy' + str(g)] = entropy_per_gate
+                log_dict['test/ece' + str(g)] = ece_gate
+
+            mlflow.log_metrics(log_dict,
+                               step=batch_idx + (epoch * len(trainloader)))
     # Save checkpoint.
-    acc = 100.*correct/total
+    threhsold_name = 'test_epoch{}'.format(epoch)
+    threshold = compute_optimal_threshold(
+        threhsold_name,
+        stored_per_x['p_max_per_gate'],
+        stored_per_x['list_correct_per_gate'],
+        target_acc=acc / 100.)
+    stored_metrics['optim_threshold'] = threshold
+    
     if acc > best_acc:
         print('Saving..')
         state = {
@@ -281,14 +339,70 @@ def test(epoch):
         }
         if not os.path.isdir(f'checkpoint_{args.dataset}_{args.model}'):
             os.mkdir(f'checkpoint_{args.dataset}_{args.model}')
-        torch.save(state, f'./checkpoint_{args.dataset}_{args.model}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
+        torch.save(
+            state,
+            f'./checkpoint_{args.dataset}_{args.model}/ckpt_{args.lr}_{args.wd}_{acc}.pth'
+        )
         best_acc = acc
     if use_mlflow:
-            log_dict= {'best/test_acc': acc}
-            mlflow.log_metrics(log_dict)
-            mlflow.end_run()
+        log_dict = {'best/test_acc': acc}
+        mlflow.log_metrics(log_dict)
+    return stored_metrics
 
-for epoch in range(start_epoch, start_epoch+60):
-    train(epoch)
-    test(epoch)
+
+def test_with_gating(epoch, threshold, name_threhold):
+
+    global best_acc
+    net.eval()
+    test_loss = 0
+    correct = 0
+    total = 0
+    stored_per_x, stored_metrics = get_empty_storage_metrics(
+        len(transformer_layer_gating))
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(testloader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            loss, outputs_logits, intermediate_outputs = get_loss(
+                inputs, targets, optimizer, criterion, net)
+            test_loss += loss.item()
+            stored_per_x, stored_metrics, correct, total = collect_metrics(
+                outputs_logits, intermediate_outputs,
+                len(transformer_layer_gating), targets, total, correct, device,
+                stored_per_x, stored_metrics)
+
+            stored_metrics = evaluate_with_gating(threshold, outputs_logits,
+                                                  intermediate_outputs,
+                                                  targets, stored_metrics)
+            
+            cost =  stored_metrics['total_cost']/total
+            gated_acc = 100.*stored_metrics['gated_correct']/total
+            progress_bar(
+                batch_idx, len(testloader),
+                'Cost: %.3f | Gated Acc: %.3f%% ' %
+                (cost, gated_acc))
+        if use_mlflow:
+            log_dict = {name_threhold+'/cost' :cost,
+            name_threhold+'/gated_acc' :gated_acc
+            }
+            
+            
+            
+            for g in range(len(transformer_layer_gating)):
+                
+                log_dict[name_threhold+'/thresh' + str(g)] = threshold[g]
+                log_dict[name_threhold+'/num' + str(g)] = threshold[g]
+
+            mlflow.log_metrics(log_dict,
+                               step=batch_idx + (epoch * len(trainloader)))
+    
+
+
+for epoch in range(start_epoch, start_epoch + 60):
+    stored_metrics_train = train(epoch)
+    stored_metrics_test = test(epoch)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold'], 'test_threshold')
+    test_with_gating(epoch, stored_metrics_train['optim_threshold'], 'train_threshold')
+    
+
     scheduler.step()
+mlflow.end_run()
