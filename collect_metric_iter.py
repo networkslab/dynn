@@ -110,16 +110,16 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
     return stored_per_x, stored_metrics, correct, total
 
 
-def evaluate_with_gating(threshold, outputs_logits, intermediate_outputs,
+def evaluate_with_gating(thresholds, outputs_logits, intermediate_outputs,
                          targets, stored_metrics):
-    G = len(threshold)
+    G = len(thresholds)
     
     points_reminding = list(range(targets.shape[0]))  # index of all points to classify
    
     gated_outputs = torch.full(outputs_logits.shape,-1.0).to(outputs_logits.device) # outputs storage
 
     num_classifiction_per_gates = []
-    for g, thresh in enumerate(threshold):
+    for g, thresh in enumerate(thresholds):
         p_max, _, _ = compute_uncertainty_metrics(intermediate_outputs[g],targets)
         
         indices_above_threshold = list(np.argwhere(np.array(p_max) > thresh).flatten())
