@@ -137,7 +137,6 @@ class T2T_ViT(nn.Module):
     sets intermediate classifiers that are hooked after inner transformer blocks
     '''
     def set_intermediate_heads(self, intermediate_head_positions):
-        self.num_gates = len(intermediate_head_positions)
         self.intermediate_head_positions = intermediate_head_positions
         self.intermediate_heads = nn.ModuleList([
             nn.Linear(self.embed_dim, self.num_classes) if self.num_classes > 0 else nn.Identity()
