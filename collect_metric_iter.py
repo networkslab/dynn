@@ -19,33 +19,36 @@ def compute_optimal_threshold(threhsold_name, all_p_max, list_correct_gate, targ
     all_cumul_acc = []
     all_correct = []
 
-    for g, p_max_per_gate in enumerate(all_p_max):
-        correct = list_correct_gate[
-            g]  # all correclty classified x at the gate
-        p_max_ind = np.argsort(
-            p_max_per_gate)[::-1]  # sort the p_max high to low
-        sorted_correct = np.array(correct)[p_max_ind]
-        sorted_p_max = np.array(p_max_per_gate)[
-            p_max_ind]  #[ 0.8, ... 0.4, ... 0.3]
-        cumall_correct = np.cumsum(
-            sorted_correct
-        )  # cumul the quantity of correctly classified at each threshold
+    for g, p_max_per_gate in enumerate(all_p_max): # for each gates
+        correct = list_correct_gate[ g]  # all correclty classified x at the gate
+        p_max_ind = np.argsort(p_max_per_gate)[::-1]  # argsort the p_max high to low 
+
+        sorted_correct = np.array(correct)[p_max_ind] # sort the correct matching the p max  => [1, 1, 0.... 1, 0]
+        sorted_p_max = np.array(p_max_per_gate)[ p_max_ind]  # sort the correct matching the p max  => [0.96, 0.9, .... 0.4, 0.1]
         
-        cumul_acc = [c / (i +1) for i, c in enumerate(cumall_correct)
-                        ]  # inverse cost is the accuracy for preset threshold
+        cumall_correct = np.cumsum(sorted_correct) 
+        cumul_acc = [c / (i +1) for i, c in enumerate(cumall_correct)]  # get the accuracy at each threshold [1,0.9,...0.3]
         
+        # store things for plots
         all_sorted_p_max.append(list(sorted_p_max))
         all_cumul_acc.append(cumul_acc)
         all_correct.append(list(sorted_correct))
 
+         
+        cumul_acc = cumul_acc[min_x:] # cut the first points to avoid variance issue when averaging 
         
-        cumul_acc = cumul_acc[min_x:]
-        indices_target_acc = np.argwhere(np.array(cumul_acc)>target_acc)
+        indices_target_acc = np.argwhere(np.array(cumul_acc)>target_acc) # get all threshold with higher acc tahn target:
+        """
+        target_acc = 0.5
+        cumul_acc = [0.8, 0.7,| 0.3, 0.3, 0.4]
+        indices_target_acc = [0,1]
+        """
+        
         if len(indices_target_acc) == 0: # if no one can hit the accuracy, we set the threshold to 1
             threshold_g = 1
             optimal_index = np.argmax(cumul_acc) + min_x
         else:
-            optimal_index = int(indices_target_acc[-1]) + min_x
+            optimal_index = int(indices_target_acc[-1]) + min_x # we get the last threshold that has higher acc 
             threshold_g = sorted_p_max[optimal_index]
         list_optimal_threshold.append(threshold_g)
 
@@ -109,35 +112,37 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
 
 def evaluate_with_gating(threshold, outputs_logits, intermediate_outputs,
                          targets, stored_metrics):
-    num_gates = len(threshold)
-    # this will iterate over the gates with thresholding
-    x_index = list(range(targets.shape[0]))  # index of all points to classify
-    gated_outputs = torch.full(outputs_logits.shape,
-                               -1.0).to(outputs_logits.device)
+    G = len(threshold)
+    
+    points_reminding = list(range(targets.shape[0]))  # index of all points to classify
+   
+    gated_outputs = torch.full(outputs_logits.shape,-1.0).to(outputs_logits.device) # outputs storage
+
     num_classifiction_per_gates = []
     for g, thresh in enumerate(threshold):
-        p_max, _, _ = compute_uncertainty_metrics(intermediate_outputs[g],
-                                                    targets)
-        early_exit_ind = list(np.argwhere(np.array(p_max) > thresh).flatten())
+        p_max, _, _ = compute_uncertainty_metrics(intermediate_outputs[g],targets)
+        
+        indices_above_threshold = list(np.argwhere(np.array(p_max) > thresh).flatten())
+        
         actual_early_exit_ind = []
-        for ind in early_exit_ind:
-            if ind in x_index:  # if that index hasnt been classified yet by an earlier gates
+        for ind in indices_above_threshold:
+            if ind in points_reminding:  # if that index hasn't been classified yet by an earlier gates
                 actual_early_exit_ind.append(ind)  # we classify it
-                x_index.remove(
-                    ind)  # we remove that index to be classified in the future
+                points_reminding.remove( ind)  # we remove it
 
         num_classifiction_per_gates.append(len(actual_early_exit_ind))
         if len(actual_early_exit_ind) > 0:
+            # we add the point to be classified by that gate
             gated_outputs[actual_early_exit_ind, :] = intermediate_outputs[g][
                 actual_early_exit_ind, :]
     #classify the reminding points with the end layer
-    gated_outputs[x_index, :] = outputs_logits[x_index, :]
+    gated_outputs[points_reminding, :] = outputs_logits[points_reminding, :]
 
     cost_per_gate = [
-        num * (g + 1) / num_gates
+        num * (g + 1) / G
         for g, num in enumerate(num_classifiction_per_gates)
     ]
-    cost_per_gate.append(len(x_index))
+    cost_per_gate.append(len(points_reminding))
     _, gated_pred = gated_outputs.max(1)
     gated_correct = gated_pred.eq(targets).sum().item()
     stored_metrics['gated_correct'] += gated_correct
