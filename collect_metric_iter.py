@@ -47,7 +47,7 @@ def compute_optimal_threshold(threhsold_name, all_p_max, list_correct_gate, targ
             threshold_g = 1
             optimal_index = np.argmax(cumul_acc) + min_x
         else:
-            optimal_index = int(indices_target_acc[0]) + min_x
+            optimal_index = int(indices_target_acc[-1]) + min_x
             threshold_g = sorted_p_max[optimal_index]
         list_optimal_threshold.append(threshold_g)
 
