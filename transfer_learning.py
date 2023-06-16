@@ -17,7 +17,9 @@ import torchvision.transforms as transforms
 import os
 import argparse
 import mlflow
-from collect_metric_iter import collect_metrics, compute_optimal_threshold, evaluate_with_gating, get_empty_storage_metrics, get_loss
+from collect_metric_iter import collect_metrics, compute_optimal_threshold, evaluate_with_gating, get_empty_storage_metrics
+from learning_helper import get_loss
+from log_helper import log_metrics_mlflow
 
 from models import *
 from timm.models import *
@@ -201,6 +203,7 @@ optimizer = optim.SGD(parameters, lr=args.lr,
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
 
+
 def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
@@ -226,8 +229,6 @@ def train(epoch):
         # compute metrics to display
         acc = 100. * correct / total
         cheating_acc = 100. * stored_metrics['cheating_correct'] / total
-        ece = stored_metrics['ece'] / total
-        entropy = np.mean(stored_per_x['final_entropy'])
         loss = epoch_loss / (batch_idx + 1)
         progress_bar(
             batch_idx, len(trainloader),
@@ -235,26 +236,8 @@ def train(epoch):
             (loss, acc, correct, total, cheating_acc))
 
         if use_mlflow:
-
-            log_dict = {
-                'train/loss': loss,
-                'train/acc': acc,
-                'train/ece': ece,
-                'train/cheating_acc': cheating_acc,
-                'train/entropy': entropy,
-            }
-            for g in range(len(transformer_layer_gating)):
-                # compute metrics to display
-                acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total
-                acc_cheating_gate = 100. * stored_metrics[
-                    'correct_cheating_per_gate'][g] / total
-                ece_gate = stored_metrics['ece_per_gate'][g] / total
-                entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
-
-                log_dict['train/acc' + str(g)] = acc_gate
-                log_dict['train/cheating_acc' + str(g)] = acc_cheating_gate
-                log_dict['train/ece' + str(g)] = ece_gate
-                log_dict['train/entropy' + str(g)] = entropy_per_gate
+            log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
+            
 
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
@@ -301,23 +284,24 @@ def test(epoch):
                 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (loss, acc, correct, total))
         if use_mlflow:
-            log_dict = {
-                'test/loss': loss,
-                'test/acc': acc,
-                'test/ece': ece,
-                'test/cheating_acc': cheating_acc,
-                'test/entropy': entropy
-            }
-            for g in range(len(transformer_layer_gating)):
-                acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total
-                acc_cheating_gate = 100. * stored_metrics[
-                    'correct_cheating_per_gate'][g] / total
-                entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
-                ece_gate = stored_metrics['ece_per_gate'][g] / total
-                log_dict['test/acc' + str(g)] = acc_gate
-                log_dict['test/cheating_acc' + str(g)] = acc_cheating_gate
-                log_dict['test/entropy' + str(g)] = entropy_per_gate
-                log_dict['test/ece' + str(g)] = ece_gate
+            log_dict = log_metrics_mlflow('test', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
+            # log_dict = {
+            #     'test/loss': loss,
+            #     'test/acc': acc,
+            #     'test/ece': ece,
+            #     'test/cheating_acc': cheating_acc,
+            #     'test/entropy': entropy
+            # }
+            # for g in range(len(transformer_layer_gating)):
+            #     acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total
+            #     acc_cheating_gate = 100. * stored_metrics[
+            #         'correct_cheating_per_gate'][g] / total
+            #     entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
+            #     ece_gate = stored_metrics['ece_per_gate'][g] / total
+            #     log_dict['test/acc' + str(g)] = acc_gate
+            #     log_dict['test/cheating_acc' + str(g)] = acc_cheating_gate
+            #     log_dict['test/entropy' + str(g)] = entropy_per_gate
+            #     log_dict['test/ece' + str(g)] = ece_gate
 
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
