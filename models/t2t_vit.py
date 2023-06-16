@@ -16,7 +16,7 @@ import numpy as np
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
-from .custom_GELU import CustomGELU
+from models.custom_modules.custom_GELU import CustomGELU
 
 def _cfg(url='', **kwargs):
     return {

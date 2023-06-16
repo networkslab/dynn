@@ -11,7 +11,7 @@ def free(torch_tensor):
     return torch_tensor.cpu().detach().numpy()
 
 # define a threshold such that each layer tries to hit the target accuracy
-def compute_optimal_threshold(threhsold_name, all_p_max, list_correct_gate, target_acc=1):
+def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, target_acc=1):
     list_optimal_threshold = []
     min_x = 10  # min x to average the accuracy
     # store things for plots
@@ -20,11 +20,11 @@ def compute_optimal_threshold(threhsold_name, all_p_max, list_correct_gate, targ
     all_correct = []
 
     for g, p_max_per_gate in enumerate(all_p_max): # for each gates
-        correct = list_correct_gate[ g]  # all correclty classified x at the gate
+        correct = list_correct_gate[g]  # all correctly classified x at the gate
         p_max_ind = np.argsort(p_max_per_gate)[::-1]  # argsort the p_max high to low 
 
         sorted_correct = np.array(correct)[p_max_ind] # sort the correct matching the p max  => [1, 1, 0.... 1, 0]
-        sorted_p_max = np.array(p_max_per_gate)[ p_max_ind]  # sort the correct matching the p max  => [0.96, 0.9, .... 0.4, 0.1]
+        sorted_p_max = np.array(p_max_per_gate)[p_max_ind]  # sort the correct matching the p max  => [0.96, 0.9, .... 0.4, 0.1]
         
         cumall_correct = np.cumsum(sorted_correct) 
         cumul_acc = [c / (i +1) for i, c in enumerate(cumall_correct)]  # get the accuracy at each threshold [1,0.9,...0.3]
@@ -37,7 +37,7 @@ def compute_optimal_threshold(threhsold_name, all_p_max, list_correct_gate, targ
          
         cumul_acc = cumul_acc[min_x:] # cut the first points to avoid variance issue when averaging 
         
-        indices_target_acc = np.argwhere(np.array(cumul_acc)>target_acc) # get all threshold with higher acc tahn target:
+        indices_target_acc = np.argwhere(np.array(cumul_acc)>target_acc) # get all thresholds with higher acc than target:
         """
         target_acc = 0.5
         cumul_acc = [0.8, 0.7,| 0.3, 0.3, 0.4]
@@ -52,7 +52,7 @@ def compute_optimal_threshold(threhsold_name, all_p_max, list_correct_gate, targ
             threshold_g = sorted_p_max[optimal_index]
         list_optimal_threshold.append(threshold_g)
 
-    generate_thresholding_plots(threhsold_name, all_sorted_p_max, all_cumul_acc, all_correct, min_x, target_acc, list_optimal_threshold)
+    generate_thresholding_plots(threshold_name, all_sorted_p_max, all_cumul_acc, all_correct, min_x, target_acc, list_optimal_threshold)
     return list_optimal_threshold
 
 

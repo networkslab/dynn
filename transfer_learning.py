@@ -273,11 +273,8 @@ def test(epoch):
                 len(transformer_layer_gating), targets, total, correct, device,
                 stored_per_x, stored_metrics)
 
-            
-            cheating_acc = 100. * stored_metrics['cheating_correct'] / total
+
             acc = 100. * correct / total
-            ece = stored_metrics['ece'] / total
-            entropy = np.mean(stored_per_x['final_entropy'])
             loss = test_loss / (batch_idx + 1)
             progress_bar(
                 batch_idx, len(testloader),
@@ -285,24 +282,6 @@ def test(epoch):
                 (loss, acc, correct, total))
         if use_mlflow:
             log_dict = log_metrics_mlflow('test', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
-            # log_dict = {
-            #     'test/loss': loss,
-            #     'test/acc': acc,
-            #     'test/ece': ece,
-            #     'test/cheating_acc': cheating_acc,
-            #     'test/entropy': entropy
-            # }
-            # for g in range(len(transformer_layer_gating)):
-            #     acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total
-            #     acc_cheating_gate = 100. * stored_metrics[
-            #         'correct_cheating_per_gate'][g] / total
-            #     entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
-            #     ece_gate = stored_metrics['ece_per_gate'][g] / total
-            #     log_dict['test/acc' + str(g)] = acc_gate
-            #     log_dict['test/cheating_acc' + str(g)] = acc_cheating_gate
-            #     log_dict['test/entropy' + str(g)] = entropy_per_gate
-            #     log_dict['test/ece' + str(g)] = ece_gate
-
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
     # Save checkpoint.
