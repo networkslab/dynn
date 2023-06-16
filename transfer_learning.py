@@ -242,8 +242,7 @@ def train(epoch):
 
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
-        if batch_idx > 50:
-            break
+        
     stored_metrics['acc'] = acc
     data_name = 'train_epoch{}'.format(epoch)
     compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics, acc)
