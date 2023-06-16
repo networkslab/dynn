@@ -1,6 +1,6 @@
 # Training
 
-from ploting_util import generate_thresholding_plots
+from plotting_util import generate_thresholding_plots
 import torch
 import scipy
 import numpy as np
@@ -10,56 +10,20 @@ from theft_calibration import calibration_curve
 def free(torch_tensor):
     return torch_tensor.cpu().detach().numpy()
 
-# define a threshold such that each layer tries to hit the target accuracy
-def compute_optimal_threshold(threhsold_name, all_p_max, list_correct_gate, target_acc=1):
-    list_optimal_threshold = []
-    min_x = 10  # min x to average the accuracy
-    # store things for plots
-    all_sorted_p_max = []
-    all_cumul_acc = []
-    all_correct = []
-
-    for g, p_max_per_gate in enumerate(all_p_max): # for each gates
-        correct = list_correct_gate[ g]  # all correclty classified x at the gate
-        p_max_ind = np.argsort(p_max_per_gate)[::-1]  # argsort the p_max high to low 
-
-        sorted_correct = np.array(correct)[p_max_ind] # sort the correct matching the p max  => [1, 1, 0.... 1, 0]
-        sorted_p_max = np.array(p_max_per_gate)[ p_max_ind]  # sort the correct matching the p max  => [0.96, 0.9, .... 0.4, 0.1]
-        
-        cumall_correct = np.cumsum(sorted_correct) 
-        cumul_acc = [c / (i +1) for i, c in enumerate(cumall_correct)]  # get the accuracy at each threshold [1,0.9,...0.3]
-        
-        # store things for plots
-        all_sorted_p_max.append(list(sorted_p_max))
-        all_cumul_acc.append(cumul_acc)
-        all_correct.append(list(sorted_correct))
-
-         
-        cumul_acc = cumul_acc[min_x:] # cut the first points to avoid variance issue when averaging 
-        
-        indices_target_acc = np.argwhere(np.array(cumul_acc)>target_acc) # get all threshold with higher acc tahn target:
-        """
-        target_acc = 0.5
-        cumul_acc = [0.8, 0.7,| 0.3, 0.3, 0.4]
-        indices_target_acc = [0,1]
-        """
-        
-        if len(indices_target_acc) == 0: # if no one can hit the accuracy, we set the threshold to 1
-            threshold_g = 1
-            optimal_index = np.argmax(cumul_acc) + min_x
-        else:
-            optimal_index = int(indices_target_acc[-1]) + min_x # we get the last threshold that has higher acc 
-            threshold_g = sorted_p_max[optimal_index]
-        list_optimal_threshold.append(threshold_g)
-
-    generate_thresholding_plots(threhsold_name, all_sorted_p_max, all_cumul_acc, all_correct, min_x, target_acc, list_optimal_threshold)
-    return list_optimal_threshold
 
 
 def compute_uncertainty_metrics(logits, targets):
     probs = torch.nn.functional.softmax(logits, dim=1)
-    p_max, _ = probs.max(1)
+
+    top2prob, _ = torch.topk(probs, 2)
+
+    p_max = top2prob[:,0]
+    next_p_max = top2prob[:,1]
+    margins = p_max-next_p_max
+
     p_max = free(p_max)
+    margins = free(margins)
+
     entropy = scipy.stats.entropy(free(probs), axis=1)
 
     _, predicted = logits.max(1)
@@ -67,7 +31,7 @@ def compute_uncertainty_metrics(logits, targets):
     ground_truth = free(correct)
     _, _, ece = calibration_curve(ground_truth, p_max)
 
-    return list(p_max), list(entropy), ece
+    return list(p_max), list(entropy), ece, list(margins)
 
 
 def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
@@ -78,10 +42,12 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
     correct += predicted.eq(targets).sum().item()
 
     # uncertainty related stats to be aggregated
-    p_max, entropy, cal = compute_uncertainty_metrics(outputs_logits, targets)
+    p_max, entropy, cal, margins = compute_uncertainty_metrics(outputs_logits, targets)
     stored_per_x['final_p_max'] += p_max
     stored_per_x['final_entropy'] += entropy
+    stored_per_x['final_margins'] += margins
     stored_metrics['ece'] += cal
+    
     # different accuracy to be cumulated
     correctly_classified = torch.full(predicted.eq(targets).shape,
                                       False).to(device)
@@ -96,9 +62,10 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
         stored_metrics['correct_cheating_per_gate'][
             g] += correctly_classified.sum().item()
 
-        p_max, entropy, cal = compute_uncertainty_metrics(
+        p_max, entropy, cal, margins = compute_uncertainty_metrics(
             intermediate_outputs[g], targets)
         stored_per_x['list_correct_per_gate'][g] += list(free(correct_gate))
+        stored_per_x['margins_per_gate'][g] += margins
         stored_per_x['p_max_per_gate'][g] += p_max
         stored_per_x['entropy_per_gate'][g] += entropy
         stored_metrics['ece_per_gate'][g] += cal
@@ -120,7 +87,7 @@ def evaluate_with_gating(thresholds, outputs_logits, intermediate_outputs,
 
     num_classifiction_per_gates = []
     for g, thresh in enumerate(thresholds):
-        p_max, _, _ = compute_uncertainty_metrics(intermediate_outputs[g],targets)
+        p_max, _, _, _ = compute_uncertainty_metrics(intermediate_outputs[g],targets)
         
         indices_above_threshold = list(np.argwhere(np.array(p_max) > thresh).flatten())
         
@@ -157,8 +124,10 @@ def get_empty_storage_metrics(num_gates):
         "entropy_per_gate": [[] for _ in range(num_gates)],
         "p_max_per_gate": [[] for _ in range(num_gates)],
         'list_correct_per_gate': [[] for _ in range(num_gates)],
+        'margins_per_gate' : [[] for _ in range(num_gates)],
         'final_entropy': [],
-        'final_p_max': []
+        'final_p_max': [],
+        'final_margins': []
     }
     stored_metrics = {
         'acc': 0,
