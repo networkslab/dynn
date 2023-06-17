@@ -12,5 +12,5 @@ python transfer_learing --lr 0.05 --b 64 --num-classes 10 --img-size 224 --trans
 ## Run mlflow
 
 ``
-mlflow server --backend-store-uri ./mlruns --port 5002
+mlflow server --backend-store-uri ./mlruns --port 5003
 ''

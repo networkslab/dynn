@@ -80,7 +80,10 @@ args = parser.parse_args()
 
 freeze_backbone = True
 transformer_layer_gating = [0,1,2,3,4,5]
+barely_train = False
 
+if barely_train:
+    print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
 
 cfg = vars(args)
 use_mlflow = args.use_mlflow
@@ -242,7 +245,10 @@ def train(epoch):
 
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
-        
+        if barely_train:
+            if batch_idx>50:
+                print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
+                break
     stored_metrics['acc'] = acc
     data_name = 'train_epoch{}'.format(epoch)
     compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics, acc)
@@ -354,10 +360,12 @@ def test_with_gating(epoch, threshold, name_threhold):
 for epoch in range(start_epoch, start_epoch + 60):
     stored_metrics_train = train(epoch)
     stored_metrics_test = test(epoch)
-    test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_threshold_pmax')
-    test_with_gating(epoch, stored_metrics_train['optim_threshold_pmax'], 'train_threshold_pmax')
-    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy'], 'test_threshold_entropy')
-    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy'], 'train_threshold_entropy')
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_thr_pmax')
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_pmax'], 'train_thr_pmax')
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy'], 'test_thr_entropy')
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy'], 'train_thr_entropy')
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_margins'], 'test_thr_margins')
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_margins'], 'train_thr_margins')
 
     scheduler.step()
 mlflow.end_run()
