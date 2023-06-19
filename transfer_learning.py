@@ -172,7 +172,9 @@ if args.resume:
     print('==> Resuming from checkpoint..')
     assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
     checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
-    net.load_state_dict(checkpoint['net'], strict=False)
+    param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
+    print("Missing keys:", param_with_issues.missing_keys)
+    print("Unexpected_keys keys:", param_with_issues.unexpected_keys)
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch']
 
@@ -357,7 +359,7 @@ def test_with_gating(epoch, threshold, name_threhold, thresh_type):
     
 
 
-for epoch in range(start_epoch, start_epoch + 10):
+for epoch in range(start_epoch, start_epoch + 5):
     stored_metrics_train = train(epoch)
     stored_metrics_test = test(epoch)
 
