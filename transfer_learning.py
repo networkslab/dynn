@@ -357,7 +357,7 @@ def test_with_gating(epoch, threshold, name_threhold):
     
 
 
-for epoch in range(start_epoch, start_epoch + 60):
+for epoch in range(start_epoch, start_epoch + 10):
     stored_metrics_train = train(epoch)
     stored_metrics_test = test(epoch)
     test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_thr_pmax')
