@@ -23,7 +23,7 @@ from log_helper import log_metrics_mlflow
 
 from models import *
 from timm.models import *
-from threshold_helper import compute_all_threshold_strategy
+from threshold_helper import THRESH, compute_all_threshold_strategy
 from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
@@ -310,7 +310,7 @@ def test(epoch):
     return stored_metrics
 
 
-def test_with_gating(epoch, threshold, name_threhold):
+def test_with_gating(epoch, threshold, name_threhold, thresh_type):
 
     global best_acc
     net.eval()
@@ -332,7 +332,7 @@ def test_with_gating(epoch, threshold, name_threhold):
 
             stored_metrics = evaluate_with_gating(threshold, outputs_logits,
                                                   intermediate_outputs,
-                                                  targets, stored_metrics)
+                                                  targets, stored_metrics, thresh_type)
             
             cost =  stored_metrics['total_cost']/total
             gated_acc = 100.*stored_metrics['gated_correct']/total
@@ -360,12 +360,17 @@ def test_with_gating(epoch, threshold, name_threhold):
 for epoch in range(start_epoch, start_epoch + 10):
     stored_metrics_train = train(epoch)
     stored_metrics_test = test(epoch)
-    test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_thr_pmax')
-    test_with_gating(epoch, stored_metrics_train['optim_threshold_pmax'], 'train_thr_pmax')
-    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy'], 'test_thr_entropy')
-    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy'], 'train_thr_entropy')
-    test_with_gating(epoch, stored_metrics_test['optim_threshold_margins'], 'test_thr_margins')
-    test_with_gating(epoch, stored_metrics_train['optim_threshold_margins'], 'train_thr_margins')
+
+    
+    
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_thr_pmax', THRESH.PMAX)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_pmax'], 'train_thr_pmax', THRESH.PMAX)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy'], 'test_thr_entropy' , THRESH.ENTROPY)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy'], 'train_thr_entropy', THRESH.ENTROPY)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy_pow'], 'test_thr_powentropy', THRESH.POWENTROPY)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy_pow'], 'train_thr_powentropy', THRESH.POWENTROPY)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_margins'], 'test_thr_margins', THRESH.MARGINS)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_margins'], 'train_thr_margins', THRESH.MARGINS)
 
     scheduler.step()
 mlflow.end_run()
