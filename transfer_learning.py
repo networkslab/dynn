@@ -13,7 +13,7 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 import torchvision
 import torchvision.transforms as transforms
-
+from models.custom_modules.confidence_score_threshold_gate import ConfidenceScoreThresholdGate
 import os
 import argparse
 import mlflow
@@ -313,58 +313,68 @@ def test(epoch):
     return stored_metrics
 
 
-def test_with_gating(epoch, threshold, name_threhold):
+def test_with_gating(epoch, thresholds, name_threhold):
 
     global best_acc
     net.eval()
     test_loss = 0
     correct = 0
     total = 0
+    gates = [ConfidenceScoreThresholdGate(0.4) for i in range(len(thresholds))]
+    net.module.set_threshold_gates(gates)
     stored_per_x, stored_metrics = get_empty_storage_metrics(
         len(transformer_layer_gating))
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            loss, outputs_logits, intermediate_outputs = get_loss(
-                inputs, targets, optimizer, criterion, net)
-            test_loss += loss.item()
-            stored_per_x, stored_metrics, correct, total = collect_metrics(
-                outputs_logits, intermediate_outputs,
-                len(transformer_layer_gating), targets, total, correct, device,
-                stored_per_x, stored_metrics)
 
-            stored_metrics = evaluate_with_gating(threshold, outputs_logits,
-                                                  intermediate_outputs,
-                                                  targets, stored_metrics)
-            
-            cost =  stored_metrics['total_cost']/total
-            gated_acc = 100.*stored_metrics['gated_correct']/total
-            progress_bar(
-                batch_idx, len(testloader),
-                'Cost: %.3f | Gated Acc: %.3f%% ' %
-                (cost, gated_acc))
-        if use_mlflow:
-            log_dict = {name_threhold+'/cost' :cost,
-            name_threhold+'/gated_acc' :gated_acc
-            }
-            
-            
-            
-            for g in range(len(transformer_layer_gating)):
-                
-                log_dict[name_threhold+'/thresh' + str(g)] = threshold[g]
-                log_dict[name_threhold+'/num' + str(g)] = threshold[g]
+            output, intermediate_outputs = net.module.forward_with_gating(inputs)
+            predicted_indices = [intermediate_output.predictions_idx for intermediate_output in intermediate_outputs]
+            exit_numbers = [len(pi) for pi in predicted_indices]
+            for inter_out in intermediate_outputs:
+                predicted_indices = inter_out.remaining_idx
+                shrinking_target = torch.index_select(targets, 0, predicted_indices)
+                print("hi")
+            # loss, outputs_logits, intermediate_outputs = get_loss(
+            #     inputs, targets, optimizer, criterion, net)
+            # test_loss += loss.item()
+            # stored_per_x, stored_metrics, correct, total = collect_metrics(
+            #     outputs_logits, intermediate_outputs,
+            #     len(transformer_layer_gating), targets, total, correct, device,
+            #     stored_per_x, stored_metrics)
 
-            mlflow.log_metrics(log_dict,
-                               step=batch_idx + (epoch * len(trainloader)))
+            # stored_metrics = evaluate_with_gating(thresholds, outputs_logits,
+            #                                       intermediate_outputs,
+            #                                       targets, stored_metrics)
+            
+        #     cost = stored_metrics['total_cost']/total
+        #     gated_acc = 100.*stored_metrics['gated_correct']/total
+        #     progress_bar(
+        #         batch_idx, len(testloader),
+        #         'Cost: %.3f | Gated Acc: %.3f%% ' %
+        #         (cost, gated_acc))
+        # if use_mlflow:
+        #     log_dict = {name_threhold+'/cost' :cost,
+        #     name_threhold+'/gated_acc' :gated_acc
+        #     }
+        #
+        #
+        #
+        #     for g in range(len(transformer_layer_gating)):
+        #
+        #         log_dict[name_threhold+'/thresh' + str(g)] = thresholds[g]
+        #         log_dict[name_threhold+'/num' + str(g)] = thresholds[g]
+        #
+        #     mlflow.log_metrics(log_dict,
+        #                        step=batch_idx + (epoch * len(trainloader)))
     
 
 
 for epoch in range(start_epoch, start_epoch + 60):
-    stored_metrics_train = train(epoch)
-    stored_metrics_test = test(epoch)
-    test_with_gating(epoch, stored_metrics_test['optim_threshold'], 'test_threshold')
-    test_with_gating(epoch, stored_metrics_train['optim_threshold'], 'train_threshold')
+    # stored_metrics_train = train(epoch)
+    # stored_metrics_test = test(epoch)
+    test_with_gating(epoch, [1, 1, 1, 1, 1, 1], 'test_threshold')
+    # test_with_gating(epoch, stored_metrics_train['optim_threshold'], 'train_threshold')
     
 
     scheduler.step()

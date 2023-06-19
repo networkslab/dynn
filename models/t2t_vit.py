@@ -103,6 +103,13 @@ class T2T_module(nn.Module):
 
         return x
 
+class IntermediateOutput:
+    def __init__(self, level: int, predictions: torch.Tensor, predictions_idx: torch.Tensor, remaining_idx: torch.Tensor):
+        self.level = level
+        self.predictions = predictions
+        self.predictions_idx = predictions_idx
+        self.remaining_idx = remaining_idx
+
 class T2T_ViT(nn.Module):
     def __init__(self, img_size=224, tokens_type='performer', in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
@@ -184,6 +191,27 @@ class T2T_ViT(nn.Module):
         intermediate_outs = []
         for head_idx, intermediate_head in enumerate(self.intermediate_heads):
             intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
+        x = self.head(x)
+        # The intermediate outs are unnormalized
+        return x, intermediate_outs
+
+    def set_threshold_gates(self, gates):
+        assert len(gates) == len(self.intermediate_heads), 'Net should have as many gates as there are intermediate classifiers'
+        self.gates = gates
+
+    def forward_with_gating(self, x):
+        x, intermediate_transformer_outs = self._forward_features(x)
+
+        intermediate_outs: list[IntermediateOutput] = []
+        for head_idx, intermediate_head in enumerate(self.intermediate_heads):
+            gate = self.gates[head_idx]
+            augmenting_classifier_out = intermediate_head(intermediate_transformer_outs[head_idx])
+            augmenting_classifier_out_normalized = torch.nn.functional.softmax(augmenting_classifier_out, dim=1)
+            confident_predictions, idx_confident_preds, idx_remaining = gate(augmenting_classifier_out_normalized)
+            if head_idx < len(self.intermediate_heads) - 1: # Reduce the size of the next intermediate_out
+                remaining_predictions_for_next_layer = torch.index_select(intermediate_transformer_outs[head_idx + 1], 0, idx_remaining)
+                intermediate_transformer_outs[head_idx + 1] = remaining_predictions_for_next_layer
+            intermediate_outs.append(IntermediateOutput(head_idx, confident_predictions, idx_confident_preds, idx_remaining))
         x = self.head(x)
         return x, intermediate_outs
 

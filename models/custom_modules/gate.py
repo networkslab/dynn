@@ -6,5 +6,5 @@ class Gate(nn.Module):
     def __init__(self):
         super(Gate, self).__init__()
 
-    def forward(self, input: Tensor) -> (Tensor, Tensor):
+    def forward(self, input: Tensor) -> (Tensor, Tensor, Tensor):
         pass
