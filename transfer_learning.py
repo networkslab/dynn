@@ -17,12 +17,13 @@ import torchvision.transforms as transforms
 import os
 import argparse
 import mlflow
-from collect_metric_iter import collect_metrics, compute_optimal_threshold, evaluate_with_gating, get_empty_storage_metrics
+from collect_metric_iter import collect_metrics, evaluate_with_gating, get_empty_storage_metrics
 from learning_helper import get_loss
 from log_helper import log_metrics_mlflow
 
 from models import *
 from timm.models import *
+from threshold_helper import THRESH, compute_all_threshold_strategy
 from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
@@ -79,7 +80,10 @@ args = parser.parse_args()
 
 freeze_backbone = True
 transformer_layer_gating = [0,1,2,3,4,5]
+barely_train = False
 
+if barely_train:
+    print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
 
 cfg = vars(args)
 use_mlflow = args.use_mlflow
@@ -243,15 +247,13 @@ def train(epoch):
 
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
-        
-    threhsold_name = 'train_epoch{}'.format(epoch)
-    threshold = compute_optimal_threshold(
-        threhsold_name,
-        stored_per_x['p_max_per_gate'],
-        stored_per_x['list_correct_per_gate'],
-        target_acc=acc / 100.)
+        if barely_train:
+            if batch_idx>50:
+                print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
+                break
     stored_metrics['acc'] = acc
-    stored_metrics['optim_threshold'] = threshold
+    data_name = 'train_epoch{}'.format(epoch)
+    compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics, acc)
     return stored_metrics
 
 
@@ -274,12 +276,8 @@ def test(epoch):
                 outputs_logits, intermediate_outputs,
                 len(transformer_layer_gating), targets, total, correct, device,
                 stored_per_x, stored_metrics)
-
             
-            cheating_acc = 100. * stored_metrics['cheating_correct'] / total
             acc = 100. * correct / total
-            ece = stored_metrics['ece'] / total
-            entropy = np.mean(stored_per_x['final_entropy'])
             loss = test_loss / (batch_idx + 1)
             progress_bar(
                 batch_idx, len(testloader),
@@ -287,34 +285,12 @@ def test(epoch):
                 (loss, acc, correct, total))
         if use_mlflow:
             log_dict = log_metrics_mlflow('test', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
-            # log_dict = {
-            #     'test/loss': loss,
-            #     'test/acc': acc,
-            #     'test/ece': ece,
-            #     'test/cheating_acc': cheating_acc,
-            #     'test/entropy': entropy
-            # }
-            # for g in range(len(transformer_layer_gating)):
-            #     acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total
-            #     acc_cheating_gate = 100. * stored_metrics[
-            #         'correct_cheating_per_gate'][g] / total
-            #     entropy_per_gate = np.mean(stored_per_x['entropy_per_gate'][g])
-            #     ece_gate = stored_metrics['ece_per_gate'][g] / total
-            #     log_dict['test/acc' + str(g)] = acc_gate
-            #     log_dict['test/cheating_acc' + str(g)] = acc_cheating_gate
-            #     log_dict['test/entropy' + str(g)] = entropy_per_gate
-            #     log_dict['test/ece' + str(g)] = ece_gate
-
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
     # Save checkpoint.
-    threhsold_name = 'test_epoch{}'.format(epoch)
-    threshold = compute_optimal_threshold(
-        threhsold_name,
-        stored_per_x['p_max_per_gate'],
-        stored_per_x['list_correct_per_gate'],
-        target_acc=acc / 100.)
-    stored_metrics['optim_threshold'] = threshold
+    
+    data_name = 'test_epoch{}'.format(epoch)
+    compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics, acc)
     
     if acc > best_acc:
         print('Saving..')
@@ -336,7 +312,7 @@ def test(epoch):
     return stored_metrics
 
 
-def test_with_gating(epoch, threshold, name_threhold):
+def test_with_gating(epoch, threshold, name_threhold, thresh_type):
 
     global best_acc
     net.eval()
@@ -358,7 +334,7 @@ def test_with_gating(epoch, threshold, name_threhold):
 
             stored_metrics = evaluate_with_gating(threshold, outputs_logits,
                                                   intermediate_outputs,
-                                                  targets, stored_metrics)
+                                                  targets, stored_metrics, thresh_type)
             
             cost =  stored_metrics['total_cost']/total
             gated_acc = 100.*stored_metrics['gated_correct']/total
@@ -386,9 +362,17 @@ def test_with_gating(epoch, threshold, name_threhold):
 for epoch in range(start_epoch, start_epoch + 5):
     stored_metrics_train = train(epoch)
     stored_metrics_test = test(epoch)
-    test_with_gating(epoch, stored_metrics_test['optim_threshold'], 'test_threshold')
-    test_with_gating(epoch, stored_metrics_train['optim_threshold'], 'train_threshold')
+
     
+    
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_thr_pmax', THRESH.PMAX)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_pmax'], 'train_thr_pmax', THRESH.PMAX)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy'], 'test_thr_entropy' , THRESH.ENTROPY)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy'], 'train_thr_entropy', THRESH.ENTROPY)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy_pow'], 'test_thr_powentropy', THRESH.POWENTROPY)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy_pow'], 'train_thr_powentropy', THRESH.POWENTROPY)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_margins'], 'test_thr_margins', THRESH.MARGINS)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_margins'], 'train_thr_margins', THRESH.MARGINS)
 
     scheduler.step()
 mlflow.end_run()
