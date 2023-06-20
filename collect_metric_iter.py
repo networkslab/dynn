@@ -5,7 +5,7 @@ import torch
 
 import numpy as np
 from threshold_helper import return_ind_thrs
-from uncertainty_metrics import compute_uncertainty_metrics
+from uncertainty_metrics import compute_detached_uncertainty_metrics
 from utils import free
 
 
@@ -64,7 +64,7 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
     correct += predicted.eq(targets).sum().item()
 
     # uncertainty related stats to be aggregated
-    p_max, entropy, cal, margins, entropy_pow = compute_uncertainty_metrics(outputs_logits, targets)
+    p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(outputs_logits, targets)
     stored_per_x['final_p_max'] += p_max
     stored_per_x['final_entropy'] += entropy
     stored_per_x['final_pow_entropy'] += entropy_pow
@@ -85,7 +85,7 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
         stored_metrics['correct_cheating_per_gate'][
             g] += correctly_classified.sum().item()
 
-        p_max, entropy, cal, margins, entropy_pow = compute_uncertainty_metrics(
+        p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(
             intermediate_outputs[g], targets)
         stored_per_x['list_correct_per_gate'][g] += list(free(correct_gate))
         stored_per_x['margins_per_gate'][g] += margins

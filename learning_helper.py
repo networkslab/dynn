@@ -18,5 +18,5 @@ def get_dumb_loss(inputs, targets, optimizer, criterion, net):
     y_pred, ic_cost, intermediate_outputs = net.module.forward_brute_force(inputs)
     loss_performance = criterion(y_pred, targets)
 
-    loss  = loss_performance + net.module.cost_perf_tradeoff * torch.sum(ic_cost)
+    loss = loss_performance + net.module.cost_perf_tradeoff * torch.sum(ic_cost)
     return loss, y_pred, intermediate_outputs

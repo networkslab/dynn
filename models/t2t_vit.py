@@ -17,6 +17,7 @@ from .token_transformer import Token_transformer
 from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
 from models.custom_modules.custom_GELU import CustomGELU
+from models.custom_modules.learnable_gate import LearnableGate
 
 def _cfg(url='', **kwargs):
     return {
@@ -204,13 +205,13 @@ class T2T_ViT(nn.Module):
         intermediate_outs = []
         all_y = []
         total_inference_cost = []
-        prob_gates = torch.zeros((inputs.shape[0],1)).to(inputs.device)
+        prob_gates = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
         for l, intermediate_head in enumerate(self.intermediate_heads):
             intermediate_logits = intermediate_head(intermediate_transformer_outs[l])
             
             intermediate_outs.append(intermediate_logits)
             current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
-            prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1)
+            prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
             cumul_previous_gates = torch.prod(1 - prob_gates[:,:-1], axis=1) # check this 
             cumul_previous_gates = cumul_previous_gates[:, None]
 
@@ -235,9 +236,8 @@ class T2T_ViT(nn.Module):
     def set_learnable_gates(self, gate_positions, dim):
 
         self.gate_positions = gate_positions
-        # TODO replace the nn.LInear module by gates
         self.gates = nn.ModuleList([
-            nn.Linear(dim, 1)   for _ in range(len(self.gate_positions))])
+            LearnableGate() for _ in range(len(self.gate_positions))])
 
 
     def forward_with_gating(self, x):
