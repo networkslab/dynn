@@ -201,17 +201,15 @@ class T2T_ViT(nn.Module):
 
     def forward_with_gating(self, x):
         x, intermediate_transformer_outs = self._forward_features(x)
-
+        # TODO: Finish this along with forward in gate.
         intermediate_outs: list[IntermediateOutput] = []
+        previous_mask = torch.zeros(x.shape[0], dtype=torch.bool)
         for head_idx, intermediate_head in enumerate(self.intermediate_heads):
             gate = self.gates[head_idx]
             augmenting_classifier_out = intermediate_head(intermediate_transformer_outs[head_idx])
             augmenting_classifier_out_normalized = torch.nn.functional.softmax(augmenting_classifier_out, dim=1)
-            confident_predictions, idx_confident_preds, idx_remaining = gate(augmenting_classifier_out_normalized)
-            if head_idx < len(self.intermediate_heads) - 1: # Reduce the size of the next intermediate_out
-                remaining_predictions_for_next_layer = torch.index_select(intermediate_transformer_outs[head_idx + 1], 0, idx_remaining)
-                intermediate_transformer_outs[head_idx + 1] = remaining_predictions_for_next_layer
-            intermediate_outs.append(IntermediateOutput(head_idx, confident_predictions, idx_confident_preds, idx_remaining))
+            confident_predictions, mask = gate(augmenting_classifier_out_normalized, previous_mask)
+            previous_mask = mask
         x = self.head(x)
         return x, intermediate_outs
 

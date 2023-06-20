@@ -8,12 +8,17 @@ class ConfidenceScoreThresholdGate(Gate):
         super(Gate, self).__init__()
         self.threshold = confidence_score_threshold
 
-    def forward(self, input: Tensor) -> (Tensor, Tensor, Tensor):
+    def forward(self, input: Tensor, previous_mask: Tensor) -> (Tensor, Tensor):
         """Returns 2 equal-size tensors, the prediction tensor and a tensor containing the indices of predictions
         :param input: The softmax logits of the classifier
         """
+        input = torch.mul(
+            torch.logical_not(previous_mask).to('cuda').float()[:, None],
+            input
+        )
         max_probs = input.max(dim = 1)
-        idx_preds_above_threshold = (max_probs.values > self.threshold).nonzero()
-        idx_preds_below_threshold = (max_probs.values <= self.threshold).nonzero() # The ones we still need to classify upstream
-        confident_preds = max_probs.indices[idx_preds_above_threshold]
-        return confident_preds, torch.flatten(idx_preds_above_threshold), torch.flatten(idx_preds_below_threshold)
+        idx_preds_above_threshold = torch.flatten((max_probs.values > self.threshold).nonzero())
+        confident_preds = torch.index_select(input, 0, idx_preds_above_threshold)
+        mask = torch.zeros(input.shape[0], dtype=torch.bool)
+        mask[idx_preds_above_threshold] = True
+        return confident_preds, mask # 1 means early exit, 0 means propagate downstream
