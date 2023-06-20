@@ -18,7 +18,7 @@ import os
 import argparse
 import mlflow
 from collect_metric_iter import collect_metrics, compute_optimal_threshold, evaluate_with_gating, get_empty_storage_metrics
-from learning_helper import get_loss
+from learning_helper import get_loss, get_dumb_loss
 from log_helper import log_metrics_mlflow
 
 from models import *
@@ -157,6 +157,8 @@ if args.transfer_learning:
     load_for_transfer_learning(net, args.transfer_model, use_ema=True, strict=False, num_classes=args.num_classes)
 
 net.set_intermediate_heads(transformer_layer_gating)
+net.set_learnable_gates(transformer_layer_gating, 256)
+
 net = net.to(device)
 
 if device == 'cuda':
@@ -184,6 +186,9 @@ if freeze_backbone:
         param.requires_grad = False
     # set the intermediate_heads params to trainable.
     for param in net.module.intermediate_heads.parameters():
+        param.requires_grad = True
+
+    for param in net.module.gates.parameters():
         param.requires_grad = True
     parameters = net.parameters()
 
@@ -215,7 +220,7 @@ def train(epoch):
         len(transformer_layer_gating))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
-        loss, outputs_logits, intermediate_outputs = get_loss(
+        loss, outputs_logits, intermediate_outputs = get_dumb_loss(
             inputs, targets, optimizer, criterion, net)
 
         loss.backward()
@@ -371,9 +376,9 @@ def test_with_gating(epoch, thresholds, name_threhold):
 
 
 for epoch in range(start_epoch, start_epoch + 60):
-    # stored_metrics_train = train(epoch)
+    stored_metrics_train = train(epoch)
     # stored_metrics_test = test(epoch)
-    test_with_gating(epoch, [1, 1, 1, 1, 1, 1], 'test_threshold')
+    # test_with_gating(epoch, [1, 1, 1, 1, 1, 1], 'test_threshold')
     # test_with_gating(epoch, stored_metrics_train['optim_threshold'], 'train_threshold')
     
 
