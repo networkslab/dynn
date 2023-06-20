@@ -23,6 +23,8 @@ from collections import OrderedDict
 
 _logger = logging.getLogger(__name__)
 
+def free(torch_tensor):
+    return torch_tensor.cpu().detach().numpy()
 
 def resize_pos_embed(posemb, posemb_new): # example: 224:(14x14+1)-> 384: (24x24+1)
     # Rescale the grid of position embeddings when loading from state_dict. Adapted from

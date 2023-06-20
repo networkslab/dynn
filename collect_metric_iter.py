@@ -1,14 +1,13 @@
 # Training
 
-from ploting_util import generate_thresholding_plots
+from plotting_util import generate_thresholding_plots
 import torch
-import scipy
+
 import numpy as np
-from theft_calibration import calibration_curve
+from threshold_helper import return_ind_thrs
+from uncertainty_metrics import compute_uncertainty_metrics
+from utils import free
 
-
-def free(torch_tensor):
-    return torch_tensor.cpu().detach().numpy()
 
 # define a threshold such that each layer tries to hit the target accuracy
 def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, target_acc=1):
@@ -56,19 +55,6 @@ def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, targ
     return list_optimal_threshold
 
 
-def compute_uncertainty_metrics(logits, targets):
-    probs = torch.nn.functional.softmax(logits, dim=1)
-    p_max, _ = probs.max(1)
-    p_max = free(p_max)
-    entropy = scipy.stats.entropy(free(probs), axis=1)
-
-    _, predicted = logits.max(1)
-    correct = predicted.eq(targets)
-    ground_truth = free(correct)
-    _, _, ece = calibration_curve(ground_truth, p_max)
-
-    return list(p_max), list(entropy), ece
-
 
 def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
                     total, correct, device, stored_per_x, stored_metrics):
@@ -78,10 +64,13 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
     correct += predicted.eq(targets).sum().item()
 
     # uncertainty related stats to be aggregated
-    p_max, entropy, cal = compute_uncertainty_metrics(outputs_logits, targets)
+    p_max, entropy, cal, margins, entropy_pow = compute_uncertainty_metrics(outputs_logits, targets)
     stored_per_x['final_p_max'] += p_max
     stored_per_x['final_entropy'] += entropy
+    stored_per_x['final_pow_entropy'] += entropy_pow
+    stored_per_x['final_margins'] += margins
     stored_metrics['ece'] += cal
+    
     # different accuracy to be cumulated
     correctly_classified = torch.full(predicted.eq(targets).shape,
                                       False).to(device)
@@ -96,11 +85,13 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
         stored_metrics['correct_cheating_per_gate'][
             g] += correctly_classified.sum().item()
 
-        p_max, entropy, cal = compute_uncertainty_metrics(
+        p_max, entropy, cal, margins, entropy_pow = compute_uncertainty_metrics(
             intermediate_outputs[g], targets)
         stored_per_x['list_correct_per_gate'][g] += list(free(correct_gate))
+        stored_per_x['margins_per_gate'][g] += margins
         stored_per_x['p_max_per_gate'][g] += p_max
         stored_per_x['entropy_per_gate'][g] += entropy
+        stored_per_x['pow_entropy_per_gate'][g] += entropy_pow
         stored_metrics['ece_per_gate'][g] += cal
 
     correctly_classified += predicted.eq(
@@ -111,7 +102,7 @@ def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
 
 
 def evaluate_with_gating(thresholds, outputs_logits, intermediate_outputs,
-                         targets, stored_metrics):
+                         targets, stored_metrics, thresh_type):
     G = len(thresholds)
     
     points_reminding = list(range(targets.shape[0]))  # index of all points to classify
@@ -120,12 +111,12 @@ def evaluate_with_gating(thresholds, outputs_logits, intermediate_outputs,
 
     num_classifiction_per_gates = []
     for g, thresh in enumerate(thresholds):
-        p_max, _, _ = compute_uncertainty_metrics(intermediate_outputs[g],targets)
         
-        indices_above_threshold = list(np.argwhere(np.array(p_max) > thresh).flatten())
+        indices_passing_threshold = return_ind_thrs(intermediate_outputs[g], thresh, thresh_type=thresh_type)
+            
         
         actual_early_exit_ind = []
-        for ind in indices_above_threshold:
+        for ind in indices_passing_threshold:
             if ind in points_reminding:  # if that index hasn't been classified yet by an earlier gates
                 actual_early_exit_ind.append(ind)  # we classify it
                 points_reminding.remove( ind)  # we remove it
@@ -155,10 +146,14 @@ def evaluate_with_gating(thresholds, outputs_logits, intermediate_outputs,
 def get_empty_storage_metrics(num_gates):
     stored_per_x = {
         "entropy_per_gate": [[] for _ in range(num_gates)],
+        "pow_entropy_per_gate": [[] for _ in range(num_gates)],
         "p_max_per_gate": [[] for _ in range(num_gates)],
         'list_correct_per_gate': [[] for _ in range(num_gates)],
+        'margins_per_gate' : [[] for _ in range(num_gates)],
         'final_entropy': [],
-        'final_p_max': []
+        'final_pow_entropy': [],
+        'final_p_max': [],
+        'final_margins': []
     }
     stored_metrics = {
         'acc': 0,

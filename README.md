@@ -14,3 +14,9 @@ python transfer_learing --lr 0.05 --b 64 --num-classes 10 --img-size 224 --trans
 ``
 mlflow server --backend-store-uri ./mlruns --port 5002
 ''
+
+# Use the plotting notebook
+
+1- Generate the plots in the mlflow web tool
+2- Download the csv file
+3- Replace the name in the generate_plot_mlflow.ipynb notebook
