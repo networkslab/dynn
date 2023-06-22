@@ -19,7 +19,7 @@ import argparse
 import mlflow
 
 from collect_metric_iter import collect_metrics, evaluate_with_gating, get_empty_storage_metrics
-from learning_helper import get_loss, get_dumb_loss
+from learning_helper import get_loss, get_dumb_loss, get_surrogate_loss
 from log_helper import log_metrics_mlflow
 
 from models import *
@@ -28,6 +28,7 @@ from threshold_helper import THRESH, compute_all_threshold_strategy
 from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
+from models.t2t_vit import TrainingPhase
 
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
@@ -202,6 +203,7 @@ if freeze_backbone:
     model_parameters = filter(lambda p: p.requires_grad, net.parameters())
     to_num_params = sum([np.prod(p.size()) for p in model_parameters])
     print('freeze the t2t module: from {} to {} trainable params.'.format(from_num_params,to_num_params ))
+
 elif args.transfer_learning:
     print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
     parameters = [{'params': net.module.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
@@ -216,7 +218,7 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.m
 
 
 
-def train(epoch):
+def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
     print('\nEpoch: %d' % epoch)
     net.train()
     epoch_loss = 0
@@ -226,15 +228,24 @@ def train(epoch):
     stored_per_x, stored_metrics = get_empty_storage_metrics(
         len(transformer_layer_gating))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
+        # Toggles requires grad to alternate training of classifiers and gates
+        # if bilevel_opt and batch_idx % bilevel_batch_count == 0:
+        #     for param in net.module.intermediate_heads.parameters():
+        #         param.requires_grad = not param.requires_grad
+        #     print(f"Setting intermediate heads training to {list(net.module.intermediate_heads.parameters())[0].requires_grad}")
+        #     for param in net.module.gates.parameters():
+        #         param.requires_grad = not param.requires_grad
+        #     print(f"Setting gates training to {list(net.module.gates.parameters())[0].requires_grad}")
+
         inputs, targets = inputs.to(device), targets.to(device)
-        loss, outputs_logits, intermediate_outputs = get_dumb_loss(
-            inputs, targets, optimizer, criterion, net)
+        loss, intermediate_logits, outputs_logits  = get_surrogate_loss(
+            inputs, targets, optimizer, criterion, net, training_phase=TrainingPhase.GATE)
 
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
         stored_per_x, stored_metrics, correct, total = collect_metrics(
-            outputs_logits, intermediate_outputs,
+            outputs_logits, intermediate_logits,
             len(transformer_layer_gating), targets, total, correct, device,
             stored_per_x, stored_metrics)
 
@@ -357,10 +368,10 @@ def test_with_gating(epoch, thresholds, name_threhold, thresh_type):
 
 
 for epoch in range(start_epoch, start_epoch + 5):
-    stored_metrics_train = train(epoch)
+    stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=100)
     stored_metrics_test = test(epoch)
-    
-    
+
+
     test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_thr_pmax', THRESH.PMAX)
     test_with_gating(epoch, stored_metrics_train['optim_threshold_pmax'], 'train_thr_pmax', THRESH.PMAX)
     test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy'], 'test_thr_entropy' , THRESH.ENTROPY)
@@ -371,4 +382,5 @@ for epoch in range(start_epoch, start_epoch + 5):
     test_with_gating(epoch, stored_metrics_train['optim_threshold_margins'], 'train_thr_margins', THRESH.MARGINS)
 
     scheduler.step()
+
 mlflow.end_run()

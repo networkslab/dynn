@@ -18,6 +18,12 @@ from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
 from models.custom_modules.custom_GELU import CustomGELU
 from models.custom_modules.learnable_gate import LearnableGate
+from mlflow import log_metrics
+from enum import Enum
+class TrainingPhase(Enum):
+    CLASSIFIER = 1
+    GATE = 2
+
 
 def _cfg(url='', **kwargs):
     return {
@@ -200,7 +206,7 @@ class T2T_ViT(nn.Module):
 
 
     # this is only to be used for training
-    def forward_brute_force(self, inputs):
+    def forward_brute_force(self, inputs, normalize = False):
         x, intermediate_transformer_outs = self._forward_features(inputs)
         intermediate_outs = []
         all_y = []
@@ -211,14 +217,19 @@ class T2T_ViT(nn.Module):
             
             intermediate_outs.append(intermediate_logits)
             current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
+
             prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
             cumul_previous_gates = torch.prod(1 - prob_gates[:,:-1], axis=1) # check this 
+            if normalize:
+                cumul_previous_gates = torch.pow(cumul_previous_gates, 1/(l + 1))
             cumul_previous_gates = cumul_previous_gates[:, None]
+
 
             y_prob_intermediate = torch.nn.functional.softmax(intermediate_logits, dim=1)
         
             gate_coef = cumul_previous_gates * current_gate_prob
-
+            # log_metrics({gate_coef},
+            #                    step=batch_idx + (epoch * len(trainloader)))
             weighted_by_gate_prob =  y_prob_intermediate * gate_coef
             
             all_y.append(weighted_by_gate_prob[:,None])
@@ -227,6 +238,47 @@ class T2T_ViT(nn.Module):
         
         return torch.sum(torch.cat(all_y, axis=1), axis=1),  torch.sum(torch.cat(total_inference_cost, axis=1), axis=1), intermediate_outs
 
+
+    def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase):
+        final_head, intermediate_transformer_outs = self._forward_features(inputs)
+        final_logits = self.head(final_head)
+        if training_phase == TrainingPhase.CLASSIFIER:
+            # Gates are frozen, find first exit gate
+            intermediate_logits = []
+            early_exit_logits = torch.zeros_like(final_logits)
+            past_exits = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
+            for l, intermediate_head in enumerate(self.intermediate_heads):
+                current_logits = intermediate_head(intermediate_transformer_outs[l])
+                intermediate_logits.append(current_logits)
+                current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
+                do_exit = torch.bernoulli(current_gate_prob)
+                current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
+                past_exits = torch.logical_or(current_exit, past_exits)
+                early_exit_logits = early_exit_logits + torch.mul(current_exit, current_logits)
+            early_exit_logits = early_exit_logits + torch.mul(torch.logical_not(past_exits), final_logits)
+            return early_exit_logits, intermediate_logits, final_logits
+        elif training_phase == TrainingPhase.GATE:
+            intermediate_losses = []
+            gate_logits = []
+            intermediate_logits = []
+            accuracy_criterion = nn.CrossEntropyLoss(reduction='none') # Measures accuracy of classifiers
+            weight_zero = 1 / len(self.gates)
+            gate_criterion = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([weight_zero, 1 - weight_zero]))
+            for l, intermediate_head in enumerate(self.intermediate_heads):
+                current_logits = intermediate_head(intermediate_transformer_outs[l])
+                intermediate_logits.append(current_logits)
+                current_gate_logits = self.gates[l](current_logits)
+                gate_logits.append(current_gate_logits)
+                ce_loss = accuracy_criterion(current_logits, targets)
+                ic_loss = (l + 1) / (len(intermediate_transformer_outs) +  1)
+                level_loss = ce_loss + self.cost_perf_tradeoff * ic_loss
+                level_loss = level_loss[:, None]
+                intermediate_losses.append(level_loss)
+            gate_target = torch.argmin(torch.cat(intermediate_losses, dim = 1), dim = 1) # For each sample in batch, which gate should exit
+            gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads))
+            gate_logits = torch.cat(gate_logits, dim=1)
+            gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
+            return gate_loss, intermediate_logits, final_logits
 
     def set_threshold_gates(self, gates):
         assert len(gates) == len(self.intermediate_heads), 'Net should have as many gates as there are intermediate classifiers'
