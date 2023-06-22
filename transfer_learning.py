@@ -84,6 +84,7 @@ freeze_backbone = True
 transformer_layer_gating = [0,1,2,3,4,5]
 barely_train = False
 
+
 if barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
 
@@ -163,7 +164,7 @@ if args.transfer_learning:
     load_for_transfer_learning(net, args.transfer_model, use_ema=True, strict=False, num_classes=args.num_classes)
 
 net.set_intermediate_heads(transformer_layer_gating)
-net.set_learnable_gates(transformer_layer_gating, 256)
+net.set_learnable_gates(transformer_layer_gating)
 
 net = net.to(device)
 
@@ -182,7 +183,7 @@ if args.resume:
     best_acc = checkpoint['acc']
     start_epoch = checkpoint['epoch']
 
-criterion = nn.CrossEntropyLoss()
+
 
 # set optimizer
 if freeze_backbone:
@@ -245,7 +246,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
         #         param.requires_grad = not param.requires_grad
         #     print(f"Setting gates training to {list(net.module.gates.parameters())[0].requires_grad}")
 
-        loss, intermediate_logits, outputs_logits  = get_surrogate_loss(inputs, targets, optimizer, criterion, net, training_phase=training_phase)
+        loss, intermediate_logits, outputs_logits  = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
             
 
         loss.backward()
@@ -294,7 +295,7 @@ def test(epoch):
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
             loss, outputs_logits, intermediate_outputs = get_loss(
-                inputs, targets, optimizer, criterion, net)
+                inputs, targets, optimizer, net)
             test_loss += loss.item()
             stored_per_x, stored_metrics, correct, total = collect_metrics(
                 outputs_logits, intermediate_outputs,
@@ -349,7 +350,7 @@ def test_with_gating(epoch, thresholds, name_threhold, thresh_type):
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
             loss, outputs_logits, intermediate_outputs = get_loss(
-                inputs, targets, optimizer, criterion, net)
+                inputs, targets, optimizer, net)
             test_loss += loss.item()
             stored_metrics = evaluate_with_gating(thresholds, outputs_logits,
                                                   intermediate_outputs,

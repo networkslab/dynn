@@ -1,6 +1,11 @@
 import torch
 from models.t2t_vit import TrainingPhase
-def get_loss(inputs, targets, optimizer, criterion, net):
+from torch import nn
+
+criterion = nn.CrossEntropyLoss()
+
+
+def get_loss(inputs, targets, optimizer, net):
 
     optimizer.zero_grad()
     outputs_logits, intermediate_outputs = net(inputs)
@@ -13,22 +18,27 @@ def get_loss(inputs, targets, optimizer, criterion, net):
     return loss, outputs_logits, intermediate_outputs
 
 
-
-def get_dumb_loss(inputs, targets, optimizer, criterion, net):
+def get_dumb_loss(inputs, targets, optimizer, net):
     optimizer.zero_grad()
-    y_pred, ic_cost, intermediate_outputs = net.module.forward_brute_force(inputs, normalize=True)
+    y_pred, ic_cost, intermediate_outputs = net.module.forward_brute_force(
+        inputs, normalize=True)
     loss_performance = criterion(y_pred, targets)
 
-    loss = loss_performance + net.module.cost_perf_tradeoff * torch.sum(ic_cost)
+    loss = loss_performance + net.module.cost_perf_tradeoff * torch.sum(
+        ic_cost)
     return loss, y_pred, intermediate_outputs
 
-def get_surrogate_loss(inputs, targets, optimizer, criterion, net, training_phase):
+
+def get_surrogate_loss(inputs, targets, optimizer, criterion, net,
+                       training_phase):
     optimizer.zero_grad()
     loss = None
     # TODO Move training phase enum to this file.
     if training_phase == TrainingPhase.CLASSIFIER:
-        y_logits, intermediate_logits, final_logits = net.module.surrogate_forward(inputs, targets, training_phase=training_phase)
+        y_logits, intermediate_logits, final_logits = net.module.surrogate_forward(
+            inputs, targets, training_phase=training_phase)
         loss = criterion(y_logits, targets)
     elif training_phase == TrainingPhase.GATE:
-        loss, intermediate_logits, final_logits = net.module.surrogate_forward(inputs, targets, training_phase=training_phase)
+        loss, intermediate_logits, final_logits = net.module.surrogate_forward(
+            inputs, targets, training_phase=training_phase)
     return loss, intermediate_logits, final_logits

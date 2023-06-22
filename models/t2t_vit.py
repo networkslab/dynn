@@ -289,7 +289,7 @@ class T2T_ViT(nn.Module):
         self.gates = gates
 
     
-    def set_learnable_gates(self, gate_positions, dim):
+    def set_learnable_gates(self, gate_positions):
 
         self.gate_positions = gate_positions
         self.gates = nn.ModuleList([
