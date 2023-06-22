@@ -218,37 +218,19 @@ optimizer = optim.SGD(parameters, lr=args.lr,
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
 
-def switch_training_phase(current_phase):
-    if current_phase == TrainingPhase.GATE:
-        return TrainingPhase.CLASSIFIER 
-    elif current_phase == TrainingPhase.CLASSIFIER:
-        return TrainingPhase.GATE
     
-def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
+def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
     epoch_loss = 0
     correct = 0
     total = 0
-    training_phase =  TrainingPhase.CLASSIFIER
     stored_per_x, stored_metrics = get_empty_storage_metrics(
         len(transformer_layer_gating))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
-        # Toggles requires grad to alternate training of classifiers and gates
-        if bilevel_opt and batch_idx % bilevel_batch_count == 0:
-            training_phase = switch_training_phase(training_phase)
-            
-        #     for param in net.module.intermediate_heads.parameters():
-        #         param.requires_grad = not param.requires_grad
-        #     print(f"Setting intermediate heads training to {list(net.module.intermediate_heads.parameters())[0].requires_grad}")
-        #     for param in net.module.gates.parameters():
-        #         param.requires_grad = not param.requires_grad
-        #     print(f"Setting gates training to {list(net.module.gates.parameters())[0].requires_grad}")
-
-        loss, intermediate_logits, outputs_logits  = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
-            
-
+       
+        loss, intermediate_logits, outputs_logits  = get_loss(inputs, targets, optimizer, net) 
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
@@ -378,6 +360,17 @@ def test_with_gating(epoch, thresholds, name_threhold, thresh_type):
 for epoch in range(start_epoch, start_epoch + 5):
     stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=100)
     stored_metrics_test = test(epoch)
+
+
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_thr_pmax', THRESH.PMAX)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_pmax'], 'train_thr_pmax', THRESH.PMAX)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy'], 'test_thr_entropy' , THRESH.ENTROPY)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy'], 'train_thr_entropy', THRESH.ENTROPY)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy_pow'], 'test_thr_powentropy', THRESH.POWENTROPY)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy_pow'], 'train_thr_powentropy', THRESH.POWENTROPY)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_margins'], 'test_thr_margins', THRESH.MARGINS)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_margins'], 'train_thr_margins', THRESH.MARGINS)
+
     scheduler.step()
 
 mlflow.end_run()
