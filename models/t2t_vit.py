@@ -132,7 +132,7 @@ class T2T_ViT(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches + 1, d_hid=embed_dim), requires_grad=False)
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.cost_perf_tradeoff = 0.5
+        self.cost_perf_tradeoff = 0.1
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
             Block(
@@ -262,8 +262,8 @@ class T2T_ViT(nn.Module):
             gate_logits = []
             intermediate_logits = []
             accuracy_criterion = nn.CrossEntropyLoss(reduction='none') # Measures accuracy of classifiers
-            weight_zero = 1 / len(self.gates)
-            gate_criterion = nn.BCEWithLogitsLoss(pos_weight=torch.Tensor([weight_zero, 1 - weight_zero]))
+       
+            gate_criterion = nn.BCEWithLogitsLoss(reduction='none')
             for l, intermediate_head in enumerate(self.intermediate_heads):
                 current_logits = intermediate_head(intermediate_transformer_outs[l])
                 intermediate_logits.append(current_logits)
@@ -278,6 +278,10 @@ class T2T_ViT(nn.Module):
             gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads))
             gate_logits = torch.cat(gate_logits, dim=1)
             gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
+            # addressing the class imbalance avec audace
+            weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)-1) +1
+            gate_loss = torch.mean(gate_loss* weight_per_sample_per_gate)
+            
             return gate_loss, intermediate_logits, final_logits
 
     def set_threshold_gates(self, gates):

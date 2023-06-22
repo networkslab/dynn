@@ -217,19 +217,27 @@ optimizer = optim.SGD(parameters, lr=args.lr,
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
 
-
+def switch_training_phase(current_phase):
+    if current_phase == TrainingPhase.GATE:
+        return TrainingPhase.CLASSIFIER 
+    elif current_phase == TrainingPhase.CLASSIFIER:
+        return TrainingPhase.GATE
+    
 def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
     print('\nEpoch: %d' % epoch)
     net.train()
     epoch_loss = 0
     correct = 0
     total = 0
-
+    training_phase= TrainingPhase.CLASSIFIER
     stored_per_x, stored_metrics = get_empty_storage_metrics(
         len(transformer_layer_gating))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
+        inputs, targets = inputs.to(device), targets.to(device)
         # Toggles requires grad to alternate training of classifiers and gates
-        # if bilevel_opt and batch_idx % bilevel_batch_count == 0:
+        if bilevel_opt and batch_idx % bilevel_batch_count == 0:
+            training_phase = switch_training_phase(training_phase)
+            
         #     for param in net.module.intermediate_heads.parameters():
         #         param.requires_grad = not param.requires_grad
         #     print(f"Setting intermediate heads training to {list(net.module.intermediate_heads.parameters())[0].requires_grad}")
@@ -237,9 +245,8 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
         #         param.requires_grad = not param.requires_grad
         #     print(f"Setting gates training to {list(net.module.gates.parameters())[0].requires_grad}")
 
-        inputs, targets = inputs.to(device), targets.to(device)
-        loss, intermediate_logits, outputs_logits  = get_surrogate_loss(
-            inputs, targets, optimizer, criterion, net, training_phase=TrainingPhase.GATE)
+        loss, intermediate_logits, outputs_logits  = get_surrogate_loss(inputs, targets, optimizer, criterion, net, training_phase=training_phase)
+            
 
         loss.backward()
         optimizer.step()
