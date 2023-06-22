@@ -230,7 +230,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
     epoch_loss = 0
     correct = 0
     total = 0
-    training_phase =  TrainingPhase.CLASSIFIER
+    training_phase =  TrainingPhase.GATE
     stored_per_x, stored_metrics = get_empty_storage_metrics(
         len(transformer_layer_gating))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
@@ -247,8 +247,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
         #     print(f"Setting gates training to {list(net.module.gates.parameters())[0].requires_grad}")
 
         loss, intermediate_logits, outputs_logits  = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
-            
-
+  
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
@@ -294,11 +293,11 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            loss, outputs_logits, intermediate_outputs = get_loss(
-                inputs, targets, optimizer, net)
+            loss, intermediate_logits, outputs_logits  = get_surrogate_loss(inputs, targets, optimizer, net)
+        
             test_loss += loss.item()
             stored_per_x, stored_metrics, correct, total = collect_metrics(
-                outputs_logits, intermediate_outputs,
+                outputs_logits, intermediate_logits,
                 len(transformer_layer_gating), targets, total, correct, device,
                 stored_per_x, stored_metrics)
             acc = 100. * correct / total
@@ -336,43 +335,6 @@ def test(epoch):
     return stored_metrics
 
 
-def test_with_gating(epoch, thresholds, name_threhold, thresh_type):
-    global best_acc
-    net.eval()
-    test_loss = 0
-    correct = 0
-    total = 0
-    gates = [ConfidenceScoreThresholdGate(0.4) for i in range(len(thresholds))]
-    net.module.set_threshold_gates(gates)
-    stored_per_x, stored_metrics = get_empty_storage_metrics(
-        len(transformer_layer_gating))
-    with torch.no_grad():
-        for batch_idx, (inputs, targets) in enumerate(testloader):
-            inputs, targets = inputs.to(device), targets.to(device)
-            loss, outputs_logits, intermediate_outputs = get_loss(
-                inputs, targets, optimizer, net)
-            test_loss += loss.item()
-            stored_metrics = evaluate_with_gating(thresholds, outputs_logits,
-                                                  intermediate_outputs,
-                                                  targets, stored_metrics, thresh_type)
-            
-            cost =  stored_metrics['total_cost']/total
-            gated_acc = 100.*stored_metrics['gated_correct']/total
-            progress_bar(
-                batch_idx, len(testloader),
-                'Cost: %.3f | Gated Acc: %.3f%% ' %
-                (cost, gated_acc))
-        if use_mlflow:
-            log_dict = {name_threhold+'/cost' :cost,
-            name_threhold+'/gated_acc' :gated_acc
-            }
-
-            for g in range(len(transformer_layer_gating)):
-                
-                log_dict[name_threhold+'/thresh' + str(g)] = thresholds[g]
-                log_dict[name_threhold+'/num' + str(g)] = thresholds[g]
-
-    
 
 
 for epoch in range(start_epoch, start_epoch + 5):
