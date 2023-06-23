@@ -30,25 +30,27 @@ def get_dumb_loss(inputs, targets, optimizer, net):
 
 
 def get_surrogate_loss(inputs, targets, optimizer, net,
-                       training_phase=None):
+                       training_phase=None) : 
     if net.training:
         optimizer.zero_grad()
         loss = None
         # TODO Move training phase enum to this file.
         if training_phase == TrainingPhase.CLASSIFIER:
-            y_logits, intermediate_logits, final_logits = net.module.surrogate_forward(
+            y_logits, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=training_phase)
             loss = criterion(y_logits, targets)
+            things_of_interest['y_logits'] = y_logits
         elif training_phase == TrainingPhase.GATE:
-            loss, intermediate_logits, final_logits = net.module.surrogate_forward(
+            loss, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=training_phase)
-            y_logits = final_logits
+            
     else:
-        y_logits, intermediate_logits, final_logits = net.module.surrogate_forward(
+        y_logits, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=TrainingPhase.CLASSIFIER)
         classifier_loss = criterion(y_logits, targets)
-        gate_loss, intermediate_logits, final_logits = net.module.surrogate_forward(
+        things_of_interest['y_logits'] = y_logits
+        gate_loss, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=TrainingPhase.GATE)
         loss = (gate_loss+classifier_loss)/2
-    
-    return loss, intermediate_logits, y_logits
+
+    return loss, things_of_interest

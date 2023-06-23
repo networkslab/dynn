@@ -256,7 +256,8 @@ class T2T_ViT(nn.Module):
                 past_exits = torch.logical_or(current_exit, past_exits)
                 early_exit_logits = early_exit_logits + torch.mul(current_exit, current_logits)
             early_exit_logits = early_exit_logits + torch.mul(torch.logical_not(past_exits), final_logits)
-            return early_exit_logits, intermediate_logits, final_logits
+            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+            return early_exit_logits, things_of_interest
         elif training_phase == TrainingPhase.GATE:
             intermediate_losses = []
             gate_logits = []
@@ -281,8 +282,8 @@ class T2T_ViT(nn.Module):
             # addressing the class imbalance avec audace
             weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)-1) +1
             gate_loss = torch.mean(gate_loss* weight_per_sample_per_gate)
-            
-            return gate_loss, intermediate_logits, final_logits
+            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+            return gate_loss, things_of_interest
 
     def set_threshold_gates(self, gates):
         assert len(gates) == len(self.intermediate_heads), 'Net should have as many gates as there are intermediate classifiers'

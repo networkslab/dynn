@@ -2,6 +2,8 @@ import numpy as np
 
 
 def log_metrics_mlflow(prefix_logger, acc, loss, G, stored_per_x,stored_metrics, total):
+    
+    
     cheating_acc = 100. * stored_metrics['cheating_correct'] / total
     ece = stored_metrics['ece'] / total
     entropy = np.mean(stored_per_x['final_entropy']) 

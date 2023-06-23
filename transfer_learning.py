@@ -83,7 +83,7 @@ args = parser.parse_args()
 freeze_backbone = True
 transformer_layer_gating = [0,1,2,3,4,5]
 barely_train = False
-
+G = len(transformer_layer_gating)
 
 if barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
@@ -230,6 +230,8 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
     epoch_loss = 0
     correct = 0
     total = 0
+    total_classifier = 0
+    total_gate = 0
     training_phase =  TrainingPhase.GATE
     stored_per_x, stored_metrics = get_empty_storage_metrics(
         len(transformer_layer_gating))
@@ -246,31 +248,39 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
         #         param.requires_grad = not param.requires_grad
         #     print(f"Setting gates training to {list(net.module.gates.parameters())[0].requires_grad}")
 
-        loss, intermediate_logits, outputs_logits  = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
-  
+        loss, things_of_interest  = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
+        
+
+        total += targets.size(0)
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
-        stored_per_x, stored_metrics, correct, total = collect_metrics(
-            outputs_logits, intermediate_logits,
-            len(transformer_layer_gating), targets, total, correct, device,
-            stored_per_x, stored_metrics)
 
-        # compute metrics to display
-        acc = 100. * correct / total
-        cheating_acc = 100. * stored_metrics['cheating_correct'] / total
-        loss = epoch_loss / (batch_idx + 1)
-        progress_bar(
-            batch_idx, len(trainloader),
-            'Loss: %.3f | Acc: %.3f%% (%d/%d) | Cheating: %.3f%%' %
-            (loss, acc, correct, total, cheating_acc))
-
-        if use_mlflow:
-            log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
+        stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
+            stored_per_x, stored_metrics, training_phase)
+        if training_phase ==  TrainingPhase.CLASSIFIER: 
+            y_logits = things_of_interest['y_logits']
+            _, predicted = y_logits.max(1)
+            correct += predicted.eq(targets).sum().item()
+            total_classifier+=targets.size(0)
+            # compute metrics to display
+            acc = 100. * correct / total_classifier
             
+            loss = epoch_loss / (batch_idx + 1)
+            progress_bar(
+                batch_idx, len(trainloader),
+                'Loss: %.3f | Classifier Acc: %.3f%% (%d/%d)' %
+                (loss, acc, correct, total_classifier))
 
-            mlflow.log_metrics(log_dict,
-                               step=batch_idx + (epoch * len(trainloader)))
+            if use_mlflow:
+                log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
+                
+
+                mlflow.log_metrics(log_dict,
+                                step=batch_idx + (epoch * len(trainloader)))
+        elif training_phase ==  TrainingPhase.GATE: 
+            total_gate+=targets.size(0)
+            progress_bar(batch_idx, len(trainloader),'Loss: %.3f ' %(loss))
         if barely_train:
             if batch_idx>50:
                 print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
@@ -338,7 +348,7 @@ def test(epoch):
 
 
 for epoch in range(start_epoch, start_epoch + 5):
-    stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=100)
+    stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=10)
     stored_metrics_test = test(epoch)
     scheduler.step()
 

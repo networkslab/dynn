@@ -1,5 +1,6 @@
 # Training
 
+from models.t2t_vit import TrainingPhase
 from plotting_util import generate_thresholding_plots
 import torch
 
@@ -55,50 +56,52 @@ def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, targ
     return list_optimal_threshold
 
 
+def collect_metrics(things_of_interest, num_gates, targets,
+                    device, stored_per_x, stored_metrics, training_phase):
+    if training_phase ==  TrainingPhase.CLASSIFIER:
+        intermediate_logits = things_of_interest['intermediate_logits']
+        
+        y_logits = things_of_interest['y_logits']
+        _, predicted = y_logits.max(1)
+        
+        
 
-def collect_metrics(outputs_logits, intermediate_outputs, num_gates, targets,
-                    total, correct, device, stored_per_x, stored_metrics):
+        # uncertainty related stats to be aggregated
+        p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(y_logits, targets)
+        stored_per_x['final_p_max'] += p_max
+        stored_per_x['final_entropy'] += entropy
+        stored_per_x['final_pow_entropy'] += entropy_pow
+        stored_per_x['final_margins'] += margins
+        stored_metrics['ece'] += cal
+        
+        # different accuracy to be cumulated
+        correctly_classified = torch.full(predicted.eq(targets).shape,
+                                        False).to(device)
+        for g in range(num_gates):
+            # normal accuracy
+            _, predicted_inter = intermediate_logits[g].max(1)
+            correct_gate = predicted_inter.eq(targets)
+            stored_metrics['correct_per_gate'][g] += correct_gate.sum().item()
 
-    _, predicted = outputs_logits.max(1)
-    total += targets.size(0)
-    correct += predicted.eq(targets).sum().item()
+            # keeping all the corrects we have from previous gates
+            correctly_classified += correct_gate
+            stored_metrics['correct_cheating_per_gate'][
+                g] += correctly_classified.sum().item()
 
-    # uncertainty related stats to be aggregated
-    p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(outputs_logits, targets)
-    stored_per_x['final_p_max'] += p_max
-    stored_per_x['final_entropy'] += entropy
-    stored_per_x['final_pow_entropy'] += entropy_pow
-    stored_per_x['final_margins'] += margins
-    stored_metrics['ece'] += cal
-    
-    # different accuracy to be cumulated
-    correctly_classified = torch.full(predicted.eq(targets).shape,
-                                      False).to(device)
-    for g in range(num_gates):
-        # normal accuracy
-        _, predicted_inter = intermediate_outputs[g].max(1)
-        correct_gate = predicted_inter.eq(targets)
-        stored_metrics['correct_per_gate'][g] += correct_gate.sum().item()
+            p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(
+                intermediate_logits[g], targets)
+            stored_per_x['list_correct_per_gate'][g] += list(free(correct_gate))
+            stored_per_x['margins_per_gate'][g] += margins
+            stored_per_x['p_max_per_gate'][g] += p_max
+            stored_per_x['entropy_per_gate'][g] += entropy
+            stored_per_x['pow_entropy_per_gate'][g] += entropy_pow
+            stored_metrics['ece_per_gate'][g] += cal
 
-        # keeping all the corrects we have from previous gates
-        correctly_classified += correct_gate
-        stored_metrics['correct_cheating_per_gate'][
-            g] += correctly_classified.sum().item()
+        correctly_classified += predicted.eq(
+            targets)  # getting all the corrects we can
+        stored_metrics['cheating_correct'] += correctly_classified.sum().item()
 
-        p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(
-            intermediate_outputs[g], targets)
-        stored_per_x['list_correct_per_gate'][g] += list(free(correct_gate))
-        stored_per_x['margins_per_gate'][g] += margins
-        stored_per_x['p_max_per_gate'][g] += p_max
-        stored_per_x['entropy_per_gate'][g] += entropy
-        stored_per_x['pow_entropy_per_gate'][g] += entropy_pow
-        stored_metrics['ece_per_gate'][g] += cal
-
-    correctly_classified += predicted.eq(
-        targets)  # getting all the corrects we can
-    stored_metrics['cheating_correct'] += correctly_classified.sum().item()
-
-    return stored_per_x, stored_metrics, correct, total
+    return stored_per_x, stored_metrics
 
 
 def evaluate_with_gating(thresholds, outputs_logits, intermediate_outputs,
