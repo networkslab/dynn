@@ -60,7 +60,7 @@ def collect_metrics(things_of_interest, num_gates, targets,
                     device, stored_per_x, stored_metrics, training_phase):
     if training_phase ==  TrainingPhase.CLASSIFIER:
         intermediate_logits = things_of_interest['intermediate_logits']
-        
+        num_exits = things_of_interest['num_exit']
         y_logits = things_of_interest['y_logits']
         _, predicted = y_logits.max(1)
         
@@ -82,7 +82,7 @@ def collect_metrics(things_of_interest, num_gates, targets,
             _, predicted_inter = intermediate_logits[g].max(1)
             correct_gate = predicted_inter.eq(targets)
             stored_metrics['correct_per_gate'][g] += correct_gate.sum().item()
-
+            stored_metrics['num_per_gate'][g] += free(num_exits[g])
             # keeping all the corrects we have from previous gates
             correctly_classified += correct_gate
             stored_metrics['correct_cheating_per_gate'][
@@ -164,6 +164,7 @@ def get_empty_storage_metrics(num_gates):
         'gated_correct': 0,
         'total_cost': 0,
         'cheating_correct': 0,
+        'num_per_gate': [0 for _ in range(num_gates)],
         'cost_per_gate': [0 for _ in range(num_gates)],
         'ece_per_gate': [0 for _ in range(num_gates)],
         'correct_per_gate': [0 for _ in range(num_gates)],

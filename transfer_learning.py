@@ -303,13 +303,12 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            loss, intermediate_logits, outputs_logits  = get_surrogate_loss(inputs, targets, optimizer, net)
+            loss, things_of_interest  = get_surrogate_loss(inputs, targets, optimizer, net)
         
             test_loss += loss.item()
-            stored_per_x, stored_metrics, correct, total = collect_metrics(
-                outputs_logits, intermediate_logits,
-                len(transformer_layer_gating), targets, total, correct, device,
-                stored_per_x, stored_metrics)
+            stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
+            stored_per_x, stored_metrics, TrainingPhase.CLASSIFIER)
+               
             acc = 100. * correct / total
             loss = test_loss / (batch_idx + 1)
             progress_bar(

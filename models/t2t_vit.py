@@ -245,6 +245,7 @@ class T2T_ViT(nn.Module):
         if training_phase == TrainingPhase.CLASSIFIER:
             # Gates are frozen, find first exit gate
             intermediate_logits = []
+            num_exit = []
             early_exit_logits = torch.zeros_like(final_logits)
             past_exits = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
             for l, intermediate_head in enumerate(self.intermediate_heads):
@@ -253,10 +254,11 @@ class T2T_ViT(nn.Module):
                 current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
                 do_exit = torch.bernoulli(current_gate_prob)
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
+                num_exit.append(torch.sum(current_exit))
                 past_exits = torch.logical_or(current_exit, past_exits)
                 early_exit_logits = early_exit_logits + torch.mul(current_exit, current_logits)
             early_exit_logits = early_exit_logits + torch.mul(torch.logical_not(past_exits), final_logits)
-            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'num_exit':num_exit}
             return early_exit_logits, things_of_interest
         elif training_phase == TrainingPhase.GATE:
             intermediate_losses = []

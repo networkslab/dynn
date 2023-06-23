@@ -24,6 +24,7 @@ def log_metrics_mlflow(prefix_logger, acc, loss, G, stored_per_x,stored_metrics,
         log_dict[prefix_logger+'/cheating_acc' + str(g)] = acc_cheating_gate
         log_dict[prefix_logger+'/entropy' + str(g)] = entropy_per_gate
         log_dict[prefix_logger+'/ece' + str(g)] = ece_gate
+        log_dict[prefix_logger+'/percent_exit' + str(g)] = stored_metrics['num_per_gate'][g]/ total_classifier
     return log_dict
 
 
