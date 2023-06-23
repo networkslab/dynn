@@ -273,7 +273,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
                 (loss, acc, correct, total_classifier))
 
             if use_mlflow:
-                log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
+                log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total, total_classifier)
                 
 
                 mlflow.log_metrics(log_dict,
@@ -348,7 +348,7 @@ def test(epoch):
 
 
 for epoch in range(start_epoch, start_epoch + 5):
-    stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=10)
+    stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=100)
     stored_metrics_test = test(epoch)
     scheduler.step()
 
