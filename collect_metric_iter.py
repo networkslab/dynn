@@ -56,33 +56,36 @@ def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, targ
     return list_optimal_threshold
 
 
-def collect_metrics(things_of_interest, num_gates, targets,
+def collect_metrics(things_of_interest, G, targets,
                     device, stored_per_x, stored_metrics, training_phase):
     if training_phase ==  TrainingPhase.CLASSIFIER:
         intermediate_logits = things_of_interest['intermediate_logits']
-        num_exits = things_of_interest['num_exit']
-        y_logits = things_of_interest['y_logits']
-        _, predicted = y_logits.max(1)
+        num_exits_per_gate = things_of_interest['num_exits_per_gate']
+        gated_y_logits = things_of_interest['gated_y_logits']
+        _, predicted = gated_y_logits.max(1)
+       
+        total_cost = compute_cost(num_exits_per_gate, G)
+        stored_metrics['total_cost'] += total_cost
         
-        
-
+        final_y_logits = things_of_interest['final_logits']
         # uncertainty related stats to be aggregated
-        p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(y_logits, targets)
+        p_max, entropy, ece, margins, entropy_pow = compute_detached_uncertainty_metrics(final_y_logits, targets)
         stored_per_x['final_p_max'] += p_max
         stored_per_x['final_entropy'] += entropy
         stored_per_x['final_pow_entropy'] += entropy_pow
         stored_per_x['final_margins'] += margins
-        stored_metrics['ece'] += cal
+        
+        stored_metrics['final_ece'] += ece
         
         # different accuracy to be cumulated
         correctly_classified = torch.full(predicted.eq(targets).shape,
                                         False).to(device)
-        for g in range(num_gates):
+        for g in range(G):
             # normal accuracy
             _, predicted_inter = intermediate_logits[g].max(1)
             correct_gate = predicted_inter.eq(targets)
             stored_metrics['correct_per_gate'][g] += correct_gate.sum().item()
-            stored_metrics['num_per_gate'][g] += free(num_exits[g])
+            stored_metrics['num_per_gate'][g] += free(num_exits_per_gate[g])
             # keeping all the corrects we have from previous gates
             correctly_classified += correct_gate
             stored_metrics['correct_cheating_per_gate'][
@@ -103,8 +106,14 @@ def collect_metrics(things_of_interest, num_gates, targets,
 
     return stored_per_x, stored_metrics
 
-
-def evaluate_with_gating(thresholds, outputs_logits, intermediate_outputs,
+def compute_cost(num_exits_per_gate, G):
+    cost_per_gate = [
+        free(num) * (g + 1) / (G+1)
+        for g, num in enumerate(num_exits_per_gate)
+    ]
+    # the last cost_per gate should be equal to the last num
+    return  np.sum(cost_per_gate)
+def evaluate_with_fixed_gating(thresholds, outputs_logits, intermediate_outputs,
                          targets, stored_metrics, thresh_type):
     G = len(thresholds)
     
@@ -131,17 +140,13 @@ def evaluate_with_gating(thresholds, outputs_logits, intermediate_outputs,
                 actual_early_exit_ind, :]
     #classify the reminding points with the end layer
     gated_outputs[points_reminding, :] = outputs_logits[points_reminding, :]
-
-    cost_per_gate = [
-        num * (g + 1) / G
-        for g, num in enumerate(num_classifiction_per_gates)
-    ]
-    cost_per_gate.append(len(points_reminding))
+    num_classifiction_per_gates.append(points_reminding)
+    total_cost = compute_cost(num_classifiction_per_gates, G)
     _, gated_pred = gated_outputs.max(1)
     gated_correct = gated_pred.eq(targets).sum().item()
     stored_metrics['gated_correct'] += gated_correct
     #stored_metrics['cost_per_gate'] += cost_per_gate
-    stored_metrics['total_cost'] += np.sum(cost_per_gate)
+    stored_metrics['total_cost'] += total_cost
     return stored_metrics
 
 
@@ -160,7 +165,7 @@ def get_empty_storage_metrics(num_gates):
     }
     stored_metrics = {
         'acc': 0,
-        'ece': 0,
+        'final_ece': 0,
         'gated_correct': 0,
         'total_cost': 0,
         'cheating_correct': 0,

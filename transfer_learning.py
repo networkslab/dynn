@@ -13,18 +13,16 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 import torchvision
 import torchvision.transforms as transforms
-from models.custom_modules.confidence_score_threshold_gate import ConfidenceScoreThresholdGate
 import os
 import argparse
 import mlflow
 
-from collect_metric_iter import collect_metrics, evaluate_with_gating, get_empty_storage_metrics
-from learning_helper import get_loss, get_dumb_loss, get_surrogate_loss
+from collect_metric_iter import collect_metrics, get_empty_storage_metrics
+from learning_helper import  get_surrogate_loss
 from log_helper import log_metrics_mlflow
 
 from models import *
 from timm.models import *
-from threshold_helper import THRESH, compute_all_threshold_strategy
 from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
@@ -259,8 +257,8 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
         stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
             stored_per_x, stored_metrics, training_phase)
         if training_phase ==  TrainingPhase.CLASSIFIER: 
-            y_logits = things_of_interest['y_logits']
-            _, predicted = y_logits.max(1)
+            gated_y_logits = things_of_interest['gated_y_logits']
+            _, predicted = gated_y_logits.max(1)
             correct += predicted.eq(targets).sum().item()
             total_classifier+=targets.size(0)
             # compute metrics to display
@@ -286,8 +284,8 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
                 print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
                 break
     stored_metrics['acc'] = acc
-    data_name = 'train_epoch{}'.format(epoch)
-    compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics, acc)
+
+    
     return stored_metrics
 
 
@@ -304,25 +302,37 @@ def test(epoch):
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
             loss, things_of_interest  = get_surrogate_loss(inputs, targets, optimizer, net)
-        
+            
+           
+            
+            gated_y_logits = things_of_interest['gated_y_logits']
+            _, predicted = gated_y_logits.max(1)
+            correct += predicted.eq(targets).sum().item()
+            total+=targets.size(0)
+            
             test_loss += loss.item()
             stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
             stored_per_x, stored_metrics, TrainingPhase.CLASSIFIER)
-               
+            
+
             acc = 100. * correct / total
             loss = test_loss / (batch_idx + 1)
             progress_bar(
                 batch_idx, len(testloader),
                 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (loss, acc, correct, total))
+
+            if barely_train:
+                if batch_idx>50:
+                    print('++++++++++++++WARNING++++++++++++++ you are barely testing to test some things')
+                    break
         if use_mlflow:
-            log_dict = log_metrics_mlflow('test', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
+            log_dict = log_metrics_mlflow('test', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total, total_classifier=total)
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
     # Save checkpoint.
     
-    data_name = 'test_epoch{}'.format(epoch)
-    compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics, acc)
+   
     
     if acc > best_acc:
         print('Saving..')

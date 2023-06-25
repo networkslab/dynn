@@ -5,14 +5,16 @@ def log_metrics_mlflow(prefix_logger, acc, loss, G, stored_per_x,stored_metrics,
     
     
     cheating_acc = 100. * stored_metrics['cheating_correct'] / total_classifier
-    ece = stored_metrics['ece'] / total_classifier
+    cost = stored_metrics['total_cost'] / total_classifier
+    ece = stored_metrics['final_ece'] / total_classifier
     entropy = np.mean(stored_per_x['final_entropy']) 
     log_dict = {
                 prefix_logger+'/loss': loss,
                 prefix_logger+'/acc': acc,
                 prefix_logger+'/ece': ece,
                 prefix_logger+'/cheating_acc': cheating_acc,
-                prefix_logger+'/entropy': entropy
+                prefix_logger+'/entropy': entropy,
+                prefix_logger+'/cost': cost
     }
     for g in range(G):
         acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total_classifier

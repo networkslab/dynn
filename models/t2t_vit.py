@@ -18,7 +18,7 @@ from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
 from models.custom_modules.custom_GELU import CustomGELU
 from models.custom_modules.learnable_gate import LearnableGate
-from mlflow import log_metrics
+from torch import Tensor
 from enum import Enum
 class TrainingPhase(Enum):
     CLASSIFIER = 1
@@ -245,7 +245,7 @@ class T2T_ViT(nn.Module):
         if training_phase == TrainingPhase.CLASSIFIER:
             # Gates are frozen, find first exit gate
             intermediate_logits = []
-            num_exit = []
+            num_exits_per_gate = []
             early_exit_logits = torch.zeros_like(final_logits)
             past_exits = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
             for l, intermediate_head in enumerate(self.intermediate_heads):
@@ -254,11 +254,13 @@ class T2T_ViT(nn.Module):
                 current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
                 do_exit = torch.bernoulli(current_gate_prob)
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
-                num_exit.append(torch.sum(current_exit))
-                past_exits = torch.logical_or(current_exit, past_exits)
+                num_exits_per_gate.append(torch.sum(current_exit))
+                past_exits = torch.logical_or(current_exit, past_exits) 
                 early_exit_logits = early_exit_logits + torch.mul(current_exit, current_logits)
-            early_exit_logits = early_exit_logits + torch.mul(torch.logical_not(past_exits), final_logits)
-            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'num_exit':num_exit}
+            final_gate_exit = torch.logical_not(past_exits)
+            num_exits_per_gate.append(torch.sum(final_gate_exit))
+            early_exit_logits = early_exit_logits + torch.mul(final_gate_exit, final_logits) # last gate
+            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'num_exits_per_gate':num_exits_per_gate}
             return early_exit_logits, things_of_interest
         elif training_phase == TrainingPhase.GATE:
             intermediate_losses = []
@@ -298,20 +300,6 @@ class T2T_ViT(nn.Module):
         self.gates = nn.ModuleList([
             LearnableGate() for _ in range(len(self.gate_positions))])
 
-
-    def forward_with_gating(self, x):
-        x, intermediate_transformer_outs = self._forward_features(x)
-        # TODO: Finish this along with forward in gate.
-        intermediate_outs: list[IntermediateOutput] = []
-        previous_mask = torch.zeros(x.shape[0], dtype=torch.bool)
-        for head_idx, intermediate_head in enumerate(self.intermediate_heads):
-            gate = self.gates[head_idx]
-            augmenting_classifier_out = intermediate_head(intermediate_transformer_outs[head_idx])
-            augmenting_classifier_out_normalized = torch.nn.functional.softmax(augmenting_classifier_out, dim=1)
-            confident_predictions, mask = gate(augmenting_classifier_out_normalized, previous_mask)
-            previous_mask = mask
-        x = self.head(x)
-        return x, intermediate_outs
 
 @register_model
 def t2t_vit_7(pretrained=False, **kwargs): # adopt performer for tokens to token

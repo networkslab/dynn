@@ -36,21 +36,21 @@ def get_surrogate_loss(inputs, targets, optimizer, net,
         loss = None
         # TODO Move training phase enum to this file.
         if training_phase == TrainingPhase.CLASSIFIER:
-            y_logits, things_of_interest = net.module.surrogate_forward(
+            gated_y_logits, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=training_phase)
-            loss = criterion(y_logits, targets)
-            things_of_interest['y_logits'] = y_logits
+            loss = criterion(gated_y_logits, targets)
+            things_of_interest['gated_y_logits'] = gated_y_logits
         elif training_phase == TrainingPhase.GATE:
             loss, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=training_phase)
             
     else:
-        y_logits, things_of_interest = net.module.surrogate_forward(
+        gated_y_logits, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=TrainingPhase.CLASSIFIER)
-        classifier_loss = criterion(y_logits, targets)
-        things_of_interest['y_logits'] = y_logits
-        gate_loss, things_of_interest = net.module.surrogate_forward(
+        classifier_loss = criterion(gated_y_logits, targets)
+        things_of_interest['gated_y_logits'] = gated_y_logits
+        gate_loss, things_of_interest_gate = net.module.surrogate_forward(
                 inputs, targets, training_phase=TrainingPhase.GATE)
         loss = (gate_loss+classifier_loss)/2
-
+        things_of_interest.update(things_of_interest_gate)
     return loss, things_of_interest

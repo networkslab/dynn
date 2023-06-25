@@ -18,7 +18,7 @@ import os
 import argparse
 import mlflow
 
-from collect_metric_iter import collect_metrics, evaluate_with_gating, get_empty_storage_metrics
+from collect_metric_iter import collect_metrics, evaluate_with_fixed_gating, get_empty_storage_metrics
 from learning_helper import get_loss, get_dumb_loss, get_surrogate_loss
 from log_helper import log_metrics_mlflow
 
@@ -334,7 +334,7 @@ def test_with_gating(epoch, thresholds, name_threhold, thresh_type):
             loss, outputs_logits, intermediate_outputs = get_loss(
                 inputs, targets, optimizer, net)
             test_loss += loss.item()
-            stored_metrics = evaluate_with_gating(thresholds, outputs_logits,
+            stored_metrics = evaluate_with_fixed_gating(thresholds, outputs_logits,
                                                   intermediate_outputs,
                                                   targets, stored_metrics, thresh_type)
             
