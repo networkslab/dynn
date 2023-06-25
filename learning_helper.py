@@ -1,6 +1,7 @@
 import torch
 from models.t2t_vit import TrainingPhase
 from torch import nn
+import numpy as np
 
 criterion = nn.CrossEntropyLoss()
 
@@ -53,4 +54,20 @@ def get_surrogate_loss(inputs, targets, optimizer, net,
                 inputs, targets, training_phase=TrainingPhase.GATE)
         loss = (gate_loss+classifier_loss)/2
         things_of_interest.update(things_of_interest_gate)
-    return loss, things_of_interest
+
+def freeze_backbone(network, excluded_submodules: list[str]):
+    model_parameters = filter(lambda p: p.requires_grad, network.parameters())
+    total_num_parameters = sum([np.prod(p.size()) for p in model_parameters])
+    # set everything to not trainable.
+    for param in network.module.parameters():
+        param.requires_grad = False
+
+
+    for submodule_attr_name in excluded_submodules: # Unfreeze excluded submodules to be trained.
+        for submodule in getattr(network.module, submodule_attr_name):
+            for param in submodule.parameters():
+                param.requires_grad = True
+
+    trainable_parameters = filter(lambda p: p.requires_grad, network.parameters())
+    num_trainable_params = sum([np.prod(p.size()) for p in trainable_parameters])
+    print('Successfully froze network: from {} to {} trainable params.'.format(total_num_parameters,num_trainable_params))
