@@ -16,7 +16,14 @@ import numpy as np
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
-from .custom_GELU import CustomGELU
+from models.custom_modules.custom_GELU import CustomGELU
+from models.custom_modules.learnable_gate import LearnableGate
+from torch import Tensor
+from enum import Enum
+class TrainingPhase(Enum):
+    CLASSIFIER = 1
+    GATE = 2
+
 
 def _cfg(url='', **kwargs):
     return {
@@ -103,6 +110,13 @@ class T2T_module(nn.Module):
 
         return x
 
+class IntermediateOutput:
+    def __init__(self, level: int, predictions: torch.Tensor, predictions_idx: torch.Tensor, remaining_idx: torch.Tensor):
+        self.level = level
+        self.predictions = predictions
+        self.predictions_idx = predictions_idx
+        self.remaining_idx = remaining_idx
+
 class T2T_ViT(nn.Module):
     def __init__(self, img_size=224, tokens_type='performer', in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
@@ -118,7 +132,7 @@ class T2T_ViT(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches + 1, d_hid=embed_dim), requires_grad=False)
         self.pos_drop = nn.Dropout(p=drop_rate)
-
+        self.cost_perf_tradeoff = 0.1
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
             Block(
@@ -138,6 +152,8 @@ class T2T_ViT(nn.Module):
     '''
     def set_intermediate_heads(self, intermediate_head_positions):
         self.intermediate_head_positions = intermediate_head_positions
+        self.cost_per_gate = [(i+1)/len(self.intermediate_head_positions) for i in range(len(self.intermediate_head_positions))]
+
         self.intermediate_heads = nn.ModuleList([
             nn.Linear(self.embed_dim, self.num_classes) if self.num_classes > 0 else nn.Identity()
             for _ in range(len(self.intermediate_head_positions))])
@@ -185,7 +201,105 @@ class T2T_ViT(nn.Module):
         for head_idx, intermediate_head in enumerate(self.intermediate_heads):
             intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
         x = self.head(x)
+        # The intermediate outs are unnormalized
         return x, intermediate_outs
+
+
+    # this is only to be used for training
+    def forward_brute_force(self, inputs, normalize = False):
+        x, intermediate_transformer_outs = self._forward_features(inputs)
+        intermediate_outs = []
+        all_y = []
+        total_inference_cost = []
+        prob_gates = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
+        for l, intermediate_head in enumerate(self.intermediate_heads):
+            intermediate_logits = intermediate_head(intermediate_transformer_outs[l])
+            
+            intermediate_outs.append(intermediate_logits)
+            current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
+
+            prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
+            cumul_previous_gates = torch.prod(1 - prob_gates[:,:-1], axis=1) # check this 
+            if normalize:
+                cumul_previous_gates = torch.pow(cumul_previous_gates, 1/(l + 1))
+            cumul_previous_gates = cumul_previous_gates[:, None]
+
+
+            y_prob_intermediate = torch.nn.functional.softmax(intermediate_logits, dim=1)
+        
+            gate_coef = cumul_previous_gates * current_gate_prob
+            # log_metrics({gate_coef},
+            #                    step=batch_idx + (epoch * len(trainloader)))
+            weighted_by_gate_prob =  y_prob_intermediate * gate_coef
+            
+            all_y.append(weighted_by_gate_prob[:,None])
+            cost_of_gate = self.cost_per_gate[l] * gate_coef
+            total_inference_cost.append(cost_of_gate)
+        
+        return torch.sum(torch.cat(all_y, axis=1), axis=1),  torch.sum(torch.cat(total_inference_cost, axis=1), axis=1), intermediate_outs
+
+
+    def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase):
+        final_head, intermediate_transformer_outs = self._forward_features(inputs)
+        final_logits = self.head(final_head)
+        if training_phase == TrainingPhase.CLASSIFIER:
+            # Gates are frozen, find first exit gate
+            intermediate_logits = []
+            num_exits_per_gate = []
+            early_exit_logits = torch.zeros_like(final_logits)
+            past_exits = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
+            for l, intermediate_head in enumerate(self.intermediate_heads):
+                current_logits = intermediate_head(intermediate_transformer_outs[l])
+                intermediate_logits.append(current_logits)
+                current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
+                do_exit = torch.bernoulli(current_gate_prob)
+                current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
+                num_exits_per_gate.append(torch.sum(current_exit))
+                past_exits = torch.logical_or(current_exit, past_exits) 
+                early_exit_logits = early_exit_logits + torch.mul(current_exit, current_logits)
+            final_gate_exit = torch.logical_not(past_exits)
+            num_exits_per_gate.append(torch.sum(final_gate_exit))
+            early_exit_logits = early_exit_logits + torch.mul(final_gate_exit, final_logits) # last gate
+            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'num_exits_per_gate':num_exits_per_gate}
+            return early_exit_logits, things_of_interest
+        elif training_phase == TrainingPhase.GATE:
+            intermediate_losses = []
+            gate_logits = []
+            intermediate_logits = []
+            accuracy_criterion = nn.CrossEntropyLoss(reduction='none') # Measures accuracy of classifiers
+       
+            gate_criterion = nn.BCEWithLogitsLoss(reduction='none')
+            for l, intermediate_head in enumerate(self.intermediate_heads):
+                current_logits = intermediate_head(intermediate_transformer_outs[l])
+                intermediate_logits.append(current_logits)
+                current_gate_logits = self.gates[l](current_logits)
+                gate_logits.append(current_gate_logits)
+                ce_loss = accuracy_criterion(current_logits, targets)
+                ic_loss = (l + 1) / (len(intermediate_transformer_outs) +  1)
+                level_loss = ce_loss + self.cost_perf_tradeoff * ic_loss
+                level_loss = level_loss[:, None]
+                intermediate_losses.append(level_loss)
+            gate_target = torch.argmin(torch.cat(intermediate_losses, dim = 1), dim = 1) # For each sample in batch, which gate should exit
+            gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads))
+            gate_logits = torch.cat(gate_logits, dim=1)
+            gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
+            # addressing the class imbalance avec audace
+            weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)-1) +1
+            gate_loss = torch.mean(gate_loss* weight_per_sample_per_gate)
+            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+            return gate_loss, things_of_interest
+
+    def set_threshold_gates(self, gates):
+        assert len(gates) == len(self.intermediate_heads), 'Net should have as many gates as there are intermediate classifiers'
+        self.gates = gates
+
+    
+    def set_learnable_gates(self, gate_positions):
+
+        self.gate_positions = gate_positions
+        self.gates = nn.ModuleList([
+            LearnableGate() for _ in range(len(self.gate_positions))])
+
 
 @register_model
 def t2t_vit_7(pretrained=False, **kwargs): # adopt performer for tokens to token

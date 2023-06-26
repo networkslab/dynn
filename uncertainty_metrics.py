@@ -2,7 +2,7 @@ from theft_calibration import calibration_curve
 import torch 
 from utils import free 
 import scipy
-def compute_uncertainty_metrics(logits, targets):
+def compute_detached_uncertainty_metrics(logits, targets):
     probs = torch.nn.functional.softmax(logits, dim=1)
 
     top2prob, _ = torch.topk(probs, 2)

@@ -1,7 +1,7 @@
 from enum import Enum
 import numpy as np
 from plotting_util import generate_thresholding_plots
-from uncertainty_metrics import compute_uncertainty_metrics
+from uncertainty_metrics import compute_detached_uncertainty_metrics
 
 
 class THRESH(Enum):
@@ -49,7 +49,7 @@ def compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics,
 
 
 def return_ind_thrs(outputs, thresh, thresh_type):
-    p_max, entropy, _, margins, entropy_pow = compute_uncertainty_metrics(
+    p_max, entropy, _, margins, entropy_pow = compute_detached_uncertainty_metrics(
         outputs, None)
     if thresh_type == THRESH.PMAX:
         indices_pass_threshold = list(
