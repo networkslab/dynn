@@ -16,9 +16,8 @@ import numpy as np
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
-from models.custom_modules.custom_GELU import CustomGELU
-from models.custom_modules.learnable_gate import LearnableGate
-from torch import Tensor
+from src.models.custom_modules.custom_GELU import CustomGELU
+from src.models.custom_modules.learnable_gate import LearnableGate
 from enum import Enum
 class TrainingPhase(Enum):
     CLASSIFIER = 1
@@ -185,21 +184,21 @@ class T2T_ViT(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = x + self.pos_embed
         x = self.pos_drop(x)
-        intermediate_outs = []
-        # return multiple predictions based on where the heads are.
+        intermediate_transformer_outs = []
         for blk_idx, blk in enumerate(self.blocks):
             x, act_code = blk.forward_get_code(x)
-            if blk_idx in self.intermediate_head_positions:
-                intermediate_outs.append(x)
-        intermediate_outs = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_outs))
+            if hasattr(self, 'intermediate_head_positions') and blk_idx in self.intermediate_head_positions:
+                intermediate_transformer_outs.append(x)
+        intermediate_transformer_outs = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_transformer_outs))
         x = self.norm(x)
-        return x[:, 0], intermediate_outs
+        return x[:, 0], intermediate_transformer_outs
 
     def forward(self, x):
         x, intermediate_transformer_outs = self._forward_features(x)
         intermediate_outs = []
-        for head_idx, intermediate_head in enumerate(self.intermediate_heads):
-            intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
+        if not not intermediate_transformer_outs:
+            for head_idx, intermediate_head in enumerate(self.intermediate_heads):
+                intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
         x = self.head(x)
         # The intermediate outs are unnormalized
         return x, intermediate_outs

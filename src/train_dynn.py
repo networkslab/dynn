@@ -1,10 +1,4 @@
-# Copyright (c) [2012]-[2021] Shanghai Yitu Technology Co., Ltd.
-#
-# This source code is licensed under the Clear BSD License
-# LICENSE file in the root directory of this file
-# All rights reserved.
-
-'''Tranfer pretrained T2T-ViT to downstream dataset: CIFAR10/CIFAR100.'''
+'''Train DYNN from checkpoint of trained backbone'''
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -28,7 +22,7 @@ from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
 from models.t2t_vit import TrainingPhase
-from data_loading.data_loader_helper import get_cifar_10_dataloaders, CIFAR_10_IMG_SIZE
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, CIFAR_10_IMG_SIZE, get_abs_path
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
@@ -44,9 +38,9 @@ parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
                     help='Drop path rate (default: None)')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--ckp-path', type=str, default='checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
+parser.add_argument('--ckp-path', type=str, default='../checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
                     help='path to checkpoint transfer learning model')
-# us
+
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
 
@@ -64,9 +58,12 @@ if use_mlflow:
     name = "_".join([str(a) for a in [args.dataset, args.batch]])
     print(name)
     project = 'DyNN'
+    mlruns_path = get_abs_path(["mlruns"])
+    mlflow.set_tracking_uri(mlruns_path)
     experiment = mlflow.set_experiment(project)
     mlflow.start_run(run_name=name)
     mlflow.log_params(cfg)
+
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # device = 'cuda'
@@ -90,9 +87,7 @@ net = create_model(
     bn_tf=False,
     bn_momentum=None,
     bn_eps=None,
-    img_size=CIFAR_10_IMG_SIZE)
-
-
+    img_size=224)
 
 net.set_intermediate_heads(transformer_layer_gating)
 net.set_learnable_gates(transformer_layer_gating)
@@ -103,42 +98,29 @@ if device == 'cuda':
     net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
 
-if args.resume:
-    # Load checkpoint.
-    print('==> Resuming from checkpoint..')
-    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-    checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
-    param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
-    print("Missing keys:", param_with_issues.missing_keys)
-    print("Unexpected keys:", param_with_issues.unexpected_keys)
-    best_acc = checkpoint['acc']
-    start_epoch = checkpoint['epoch']
 
+print('==> Resuming from checkpoint..')
+assert os.path.isdir('../checkpoint'), 'Error: no checkpoint directory found!'
+checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
+param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
+print("Missing keys:", param_with_issues.missing_keys)
+print("Unexpected keys:", param_with_issues.unexpected_keys)
+best_acc = checkpoint['acc']
+start_epoch = checkpoint['epoch']
 
-
-# set optimizer
-if freeze_backbone:
-    freeze_backbone_helper(net, ['intermediate_heads', 'gates'])
-
-elif args.transfer_learning:
-    print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
-    parameters = [{'params': net.module.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
-                  {'params': net.module.blocks.parameters(), 'lr': args.transfer_ratio * args.lr},
-                 {'params': net.module.head.parameters()}]
-else:
-    parameters = net.parameters()
+# Backbone is always frozen
+freeze_backbone_helper(net, ['intermediate_heads', 'gates'])
+parameters = net.parameters()
+def switch_training_phase(current_phase):
+    if current_phase == TrainingPhase.GATE:
+        return TrainingPhase.CLASSIFIER
+    elif current_phase == TrainingPhase.CLASSIFIER:
+        return TrainingPhase.GATE
 
 optimizer = optim.SGD(parameters, lr=0.01,
                       momentum=0.9, weight_decay=0.0005)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
-
-def switch_training_phase(current_phase):
-    if current_phase == TrainingPhase.GATE:
-        return TrainingPhase.CLASSIFIER 
-    elif current_phase == TrainingPhase.CLASSIFIER:
-        return TrainingPhase.GATE
-    
 def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
     print('\nEpoch: %d' % epoch)
     net.train()
@@ -155,16 +137,9 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
         # Toggles requires grad to alternate training of classifiers and gates
         if bilevel_opt and batch_idx % bilevel_batch_count == 0:
             training_phase = switch_training_phase(training_phase)
-            
-        #     for param in net.module.intermediate_heads.parameters():
-        #         param.requires_grad = not param.requires_grad
-        #     print(f"Setting intermediate heads training to {list(net.module.intermediate_heads.parameters())[0].requires_grad}")
-        #     for param in net.module.gates.parameters():
-        #         param.requires_grad = not param.requires_grad
-        #     print(f"Setting gates training to {list(net.module.gates.parameters())[0].requires_grad}")
 
         loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
-        
+
 
         total += targets.size(0)
         loss.backward()
@@ -172,15 +147,15 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
         epoch_loss += loss.item()
 
         stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
-            stored_per_x, stored_metrics, training_phase)
-        if training_phase ==  TrainingPhase.CLASSIFIER: 
+                                                       stored_per_x, stored_metrics, training_phase)
+        if training_phase == TrainingPhase.CLASSIFIER:
             gated_y_logits = things_of_interest['gated_y_logits']
             _, predicted = gated_y_logits.max(1)
             correct += predicted.eq(targets).sum().item()
             total_classifier+=targets.size(0)
             # compute metrics to display
             acc = 100. * correct / total_classifier
-            
+
             loss = epoch_loss / (batch_idx + 1)
             progress_bar(
                 batch_idx, len(train_loader),
@@ -189,11 +164,11 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
 
             if use_mlflow:
                 log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total, total_classifier)
-                
+
 
                 mlflow.log_metrics(log_dict,
                                    step=batch_idx + (epoch * len(train_loader)))
-        elif training_phase ==  TrainingPhase.GATE: 
+        elif training_phase ==  TrainingPhase.GATE:
             total_gate+=targets.size(0)
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f ' % (loss))
         if barely_train:
@@ -202,7 +177,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
                 break
     stored_metrics['acc'] = acc
 
-    
+
     return stored_metrics
 
 
@@ -219,18 +194,18 @@ def test(epoch):
         for batch_idx, (inputs, targets) in enumerate(test_loader):
             inputs, targets = inputs.to(device), targets.to(device)
             loss, things_of_interest  = get_surrogate_loss(inputs, targets, optimizer, net)
-            
-           
-            
+
+
+
             gated_y_logits = things_of_interest['gated_y_logits']
             _, predicted = gated_y_logits.max(1)
             correct += predicted.eq(targets).sum().item()
             total+=targets.size(0)
-            
+
             test_loss += loss.item()
             stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
-            stored_per_x, stored_metrics, TrainingPhase.CLASSIFIER)
-            
+                                                           stored_per_x, stored_metrics, TrainingPhase.CLASSIFIER)
+
 
             acc = 100. * correct / total
             loss = test_loss / (batch_idx + 1)
@@ -248,9 +223,9 @@ def test(epoch):
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(train_loader)))
     # Save checkpoint.
-    
-   
-    
+
+
+
     if acc > best_acc:
         print('Saving..')
         state = {
@@ -269,9 +244,6 @@ def test(epoch):
         log_dict = {'best/test_acc': acc}
         mlflow.log_metrics(log_dict)
     return stored_metrics
-
-
-
 
 for epoch in range(start_epoch, start_epoch + 5):
     stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=100)

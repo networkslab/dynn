@@ -17,17 +17,17 @@ def get_abs_path(paths_strings):
     src_abs_path = get_path_to_project_root()
     return f'{src_abs_path}/{subpath}/'
 
-def get_cifar_10_dataloaders(train_batch_size = 64, test_batch_size = 100):
+def get_cifar_10_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100):
     transform_train = transforms.Compose([
-        transforms.Resize(CIFAR_10_IMG_SIZE),
-        transforms.RandomCrop(CIFAR_10_IMG_SIZE, padding=(CIFAR_10_IMG_SIZE//8)),
+        transforms.Resize(img_size),
+        transforms.RandomCrop(img_size, padding=(img_size//8)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.24703, 0.24348, 0.26158)),
     ])
 
     transform_test = transforms.Compose([
-        transforms.Resize(CIFAR_10_IMG_SIZE),
+        transforms.Resize(img_size),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.24703, 0.24348, 0.26158)), # TODO compute these values for the test set
     ])
@@ -43,17 +43,17 @@ def get_cifar_10_dataloaders(train_batch_size = 64, test_batch_size = 100):
         test_set, batch_size=test_batch_size, shuffle=False)
     return train_loader, test_loader
 
-def get_cifar_100_dataloaders(train_batch_size = 64, test_batch_size = 100):
+def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100):
     transform_train = transforms.Compose([
-        transforms.Resize(CIFAR_100_IMG_SIZE),
-        transforms.RandomCrop(CIFAR_100_IMG_SIZE, padding=(CIFAR_100_IMG_SIZE//8)),
+        transforms.Resize(img_size),
+        transforms.RandomCrop(img_size, padding=(img_size//8)),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
     ])
 
     transform_test = transforms.Compose([
-        transforms.Resize(CIFAR_10_IMG_SIZE),
+        transforms.Resize(img_size),
         transforms.ToTensor(),
         transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)), # TODO compute these values for the test set
     ])

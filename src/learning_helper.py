@@ -31,7 +31,7 @@ def get_dumb_loss(inputs, targets, optimizer, net):
 
 
 def get_surrogate_loss(inputs, targets, optimizer, net,
-                       training_phase=None) : 
+                       training_phase=None):
     if net.training:
         optimizer.zero_grad()
         loss = None
@@ -54,6 +54,7 @@ def get_surrogate_loss(inputs, targets, optimizer, net,
                 inputs, targets, training_phase=TrainingPhase.GATE)
         loss = (gate_loss+classifier_loss)/2
         things_of_interest.update(things_of_interest_gate)
+    return loss, things_of_interest
 
 def freeze_backbone(network, excluded_submodules: list[str]):
     model_parameters = filter(lambda p: p.requires_grad, network.parameters())

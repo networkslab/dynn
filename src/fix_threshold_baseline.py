@@ -29,6 +29,8 @@ from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
 from models.t2t_vit import TrainingPhase
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, CIFAR_10_IMG_SIZE, get_abs_path
+
 
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
@@ -91,9 +93,11 @@ if barely_train:
 cfg = vars(args)
 use_mlflow = args.use_mlflow
 if use_mlflow:
-    name = "_".join([str(a) for a in [args.dataset, args.b]])
+    name = "_".join([str(a) for a in [args.dataset, args.batch]])
     print(name)
     project = 'DyNN'
+    mlruns_path = get_abs_path(["mlruns"])
+    mlflow.set_tracking_uri(mlruns_path)
     experiment = mlflow.set_experiment(project)
     mlflow.start_run(run_name=name)
     mlflow.log_params(cfg)
@@ -175,7 +179,7 @@ if device == 'cuda':
 if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
-    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+    assert os.path.isdir('../checkpoint'), 'Error: no checkpoint directory found!'
     checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
     param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
     print("Missing keys:", param_with_issues.missing_keys)
