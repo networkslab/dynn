@@ -5,30 +5,20 @@
 # All rights reserved.
 
 '''Tranfer pretrained T2T-ViT to downstream dataset: CIFAR10/CIFAR100.'''
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-import torch.backends.cudnn as cudnn
-
-
-from models.custom_modules.confidence_score_threshold_gate import ConfidenceScoreThresholdGate
-import os
 import argparse
+import os
+import torch
+
 import mlflow
-
-from collect_metric_iter import collect_metrics, get_empty_storage_metrics
-from learning_helper import get_loss, get_dumb_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
-
-from log_helper import log_metrics_mlflow
-import numpy as np
-from models import *
+import torch.backends.cudnn as cudnn
+import torch.optim as optim
 from timm.models import *
-from utils import progress_bar
 from timm.models import create_model
+
+from data_loading.data_loader_helper import get_cifar_10_dataloaders
 from utils import load_for_transfer_learning
-from models.t2t_vit import TrainingPhase
-from data_loading.data_loader_helper import get_cifar_10_dataloaders, CIFAR_10_IMG_SIZE, get_abs_path
+from utils import progress_bar
+from log_helper import setup_mlflow
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
@@ -50,24 +40,12 @@ parser.add_argument('--ckp-path', type=str, default='../checkpoint/checkpoint_ci
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
 
-model = 't2t_vit_7'
-barely_train = False
 
-
-if barely_train:
-    print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
-
-cfg = vars(args)
 use_mlflow = args.use_mlflow
 if use_mlflow:
     name = "_".join([str(a) for a in [args.dataset, args.batch]])
-    print(name)
-    project = 'DyNN'
-    mlruns_path = get_abs_path(["mlruns"])
-    mlflow.set_tracking_uri(mlruns_path)
-    experiment = mlflow.set_experiment(project)
-    mlflow.start_run(run_name=name)
-    mlflow.log_params(cfg)
+    cfg = vars(args)
+    setup_mlflow(name, cfg)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # device = 'cuda'
@@ -76,11 +54,13 @@ start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
 train_loader, test_loader = get_cifar_10_dataloaders(train_batch_size=args.batch)
 NUM_CLASSES = 10
+MODEL = 't2t_vit_7'
+
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
 net = create_model(
-    't2t_vit_7',
+    MODEL,
     pretrained=False,
     num_classes=NUM_CLASSES,
     drop_rate=0.0,
@@ -109,8 +89,8 @@ parameters = [{'params': net.module.tokens_to_token.parameters(), 'lr': args.tra
              {'params': net.module.head.parameters()}]
 
 
-optimizer = optim.SGD(parameters, lr=0.01,
-                      momentum=0.9, weight_decay=0.0005)
+optimizer = optim.SGD(parameters, lr=args.lr,
+                      momentum=0.9, weight_decay=args.wd)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
 criterion = nn.CrossEntropyLoss()
@@ -169,9 +149,9 @@ def test(epoch):
             'acc': acc,
             'epoch': epoch,
         }
-        if not os.path.isdir(f'checkpoint_{args.dataset}_{model}'):
-            os.mkdir(f'checkpoint_{args.dataset}_{model}')
-        torch.save(state, f'../checkpoint_{args.dataset}_{model}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
+        if not os.path.isdir(f'checkpoint_{args.dataset}_{MODEL}'):
+            os.mkdir(f'checkpoint_{args.dataset}_{MODEL}')
+        torch.save(state, f'../checkpoint_{args.dataset}_{MODEL}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
         best_acc = acc
     if use_mlflow:
         log_dict= {'best/test_acc': acc}

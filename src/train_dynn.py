@@ -1,28 +1,19 @@
 '''Train DYNN from checkpoint of trained backbone'''
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import torch.nn.functional as F
-import torch.backends.cudnn as cudnn
-
-
-from models.custom_modules.confidence_score_threshold_gate import ConfidenceScoreThresholdGate
-import os
 import argparse
+import os
+import torch
 import mlflow
+import torch.backends.cudnn as cudnn
+import torch.optim as optim
+from timm.models import *
+from timm.models import create_model
 
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
-from learning_helper import get_loss, get_dumb_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
-
-from log_helper import log_metrics_mlflow
-import numpy as np
-from models import *
-from timm.models import *
+from data_loading.data_loader_helper import get_cifar_10_dataloaders
+from learning_helper import get_surrogate_loss, freeze_backbone as freeze_backbone_helper
+from log_helper import log_metrics_mlflow, setup_mlflow
 from utils import progress_bar
-from timm.models import create_model
-from utils import load_for_transfer_learning
 from models.t2t_vit import TrainingPhase
-from data_loading.data_loader_helper import get_cifar_10_dataloaders, CIFAR_10_IMG_SIZE, get_abs_path
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
@@ -52,17 +43,11 @@ G = len(transformer_layer_gating)
 if barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
 
-cfg = vars(args)
 use_mlflow = args.use_mlflow
 if use_mlflow:
     name = "_".join([str(a) for a in [args.dataset, args.batch]])
-    print(name)
-    project = 'DyNN'
-    mlruns_path = get_abs_path(["mlruns"])
-    mlflow.set_tracking_uri(mlruns_path)
-    experiment = mlflow.set_experiment(project)
-    mlflow.start_run(run_name=name)
-    mlflow.log_params(cfg)
+    cfg = vars(args)
+    setup_mlflow(name, cfg)
 
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -70,7 +55,8 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
-train_loader, test_loader = get_cifar_10_dataloaders(train_batch_size=args.batch)
+IMG_SIZE = 224
+train_loader, test_loader = get_cifar_10_dataloaders(img_size=IMG_SIZE, train_batch_size=args.batch)
 NUM_CLASSES = 10
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
@@ -87,7 +73,7 @@ net = create_model(
     bn_tf=False,
     bn_momentum=None,
     bn_eps=None,
-    img_size=224)
+    img_size=IMG_SIZE)
 
 net.set_intermediate_heads(transformer_layer_gating)
 net.set_learnable_gates(transformer_layer_gating)
@@ -117,11 +103,11 @@ def switch_training_phase(current_phase):
     elif current_phase == TrainingPhase.CLASSIFIER:
         return TrainingPhase.GATE
 
-optimizer = optim.SGD(parameters, lr=0.01,
-                      momentum=0.9, weight_decay=0.0005)
+optimizer = optim.SGD(parameters, lr=args.lr,
+                      momentum=0.9, weight_decay=args.wd)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
-def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
+def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmup_periods = 0):
     print('\nEpoch: %d' % epoch)
     net.train()
     epoch_loss = 0
@@ -129,17 +115,17 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
     total = 0
     total_classifier = 0
     total_gate = 0
-    training_phase =  TrainingPhase.GATE
+    training_phase = TrainingPhase.GATE
     stored_per_x, stored_metrics = get_empty_storage_metrics(
         len(transformer_layer_gating))
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
-        # Toggles requires grad to alternate training of classifiers and gates
-        if bilevel_opt and batch_idx % bilevel_batch_count == 0:
+        if classifier_warmup_periods > 0 and batch_idx < classifier_warmup_periods:
+            training_phase = TrainingPhase.CLASSIFIER
+        elif bilevel_opt and batch_idx % bilevel_batch_count == 0:
             training_phase = switch_training_phase(training_phase)
 
         loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
-
 
         total += targets.size(0)
         loss.backward()
@@ -152,37 +138,41 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
             gated_y_logits = things_of_interest['gated_y_logits']
             _, predicted = gated_y_logits.max(1)
             correct += predicted.eq(targets).sum().item()
-            total_classifier+=targets.size(0)
+            total_classifier += targets.size(0)
             # compute metrics to display
-            acc = 100. * correct / total_classifier
+            gated_acc = 100. * correct / total_classifier
 
             loss = epoch_loss / (batch_idx + 1)
             progress_bar(
                 batch_idx, len(train_loader),
                 'Loss: %.3f | Classifier Acc: %.3f%% (%d/%d)' %
-                (loss, acc, correct, total_classifier))
+                (loss, gated_acc, correct, total_classifier))
 
             if use_mlflow:
-                log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total, total_classifier)
-
-
+                log_dict = log_metrics_mlflow(
+                    'train',
+                    gated_acc,
+                    loss,
+                    len(transformer_layer_gating),
+                    stored_per_x,
+                    stored_metrics,
+                    total,
+                    total_classifier)
                 mlflow.log_metrics(log_dict,
                                    step=batch_idx + (epoch * len(train_loader)))
-        elif training_phase ==  TrainingPhase.GATE:
-            total_gate+=targets.size(0)
+        elif training_phase == TrainingPhase.GATE:
+            total_gate += targets.size(0)
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f ' % (loss))
         if barely_train:
-            if batch_idx>50:
+            if batch_idx > 50:
                 print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
                 break
-    stored_metrics['acc'] = acc
-
+    stored_metrics['acc'] = gated_acc
 
     return stored_metrics
 
 
 def test(epoch):
-
     global best_acc
     net.eval()
     test_loss = 0
@@ -194,9 +184,6 @@ def test(epoch):
         for batch_idx, (inputs, targets) in enumerate(test_loader):
             inputs, targets = inputs.to(device), targets.to(device)
             loss, things_of_interest  = get_surrogate_loss(inputs, targets, optimizer, net)
-
-
-
             gated_y_logits = things_of_interest['gated_y_logits']
             _, predicted = gated_y_logits.max(1)
             correct += predicted.eq(targets).sum().item()
@@ -223,9 +210,6 @@ def test(epoch):
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(train_loader)))
     # Save checkpoint.
-
-
-
     if acc > best_acc:
         print('Saving..')
         state = {
@@ -246,7 +230,10 @@ def test(epoch):
     return stored_metrics
 
 for epoch in range(start_epoch, start_epoch + 5):
-    stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=100)
+    classifier_warmup_period = 0 if epoch > start_epoch else 200
+    stored_metrics_train = train(
+        epoch, bilevel_opt=True, bilevel_batch_count=100, classifier_warmup_periods=classifier_warmup_period
+    )
     stored_metrics_test = test(epoch)
     scheduler.step()
 

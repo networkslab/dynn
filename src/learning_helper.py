@@ -2,9 +2,10 @@ import torch
 from models.t2t_vit import TrainingPhase
 from torch import nn
 import numpy as np
+from enum import Enum
+
 
 criterion = nn.CrossEntropyLoss()
-
 
 def get_loss(inputs, targets, optimizer, net):
 
@@ -40,19 +41,18 @@ def get_surrogate_loss(inputs, targets, optimizer, net,
             gated_y_logits, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=training_phase)
             loss = criterion(gated_y_logits, targets)
-            things_of_interest['gated_y_logits'] = gated_y_logits
         elif training_phase == TrainingPhase.GATE:
             loss, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=training_phase)
             
     else:
         gated_y_logits, things_of_interest = net.module.surrogate_forward(
-                inputs, targets, training_phase=TrainingPhase.CLASSIFIER)
+                inputs, targets, training_phase = TrainingPhase.CLASSIFIER)
         classifier_loss = criterion(gated_y_logits, targets)
         things_of_interest['gated_y_logits'] = gated_y_logits
         gate_loss, things_of_interest_gate = net.module.surrogate_forward(
-                inputs, targets, training_phase=TrainingPhase.GATE)
-        loss = (gate_loss+classifier_loss)/2
+                inputs, targets, training_phase = TrainingPhase.GATE)
+        loss = (gate_loss + classifier_loss) / 2
         things_of_interest.update(things_of_interest_gate)
     return loss, things_of_interest
 

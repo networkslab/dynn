@@ -58,7 +58,7 @@ def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, targ
 
 def collect_metrics(things_of_interest, G, targets,
                     device, stored_per_x, stored_metrics, training_phase):
-    if training_phase ==  TrainingPhase.CLASSIFIER:
+    if training_phase == TrainingPhase.CLASSIFIER:
         intermediate_logits = things_of_interest['intermediate_logits']
         num_exits_per_gate = things_of_interest['num_exits_per_gate']
         gated_y_logits = things_of_interest['gated_y_logits']
@@ -68,6 +68,8 @@ def collect_metrics(things_of_interest, G, targets,
         stored_metrics['total_cost'] += total_cost
         
         final_y_logits = things_of_interest['final_logits']
+        _, pred_final_head = final_y_logits.max(1)
+        stored_metrics['final_head_correct_all'] += pred_final_head.eq(targets).sum().item()
         # uncertainty related stats to be aggregated
         p_max, entropy, ece, margins, entropy_pow = compute_detached_uncertainty_metrics(final_y_logits, targets)
         stored_per_x['final_p_max'] += p_max
@@ -100,7 +102,7 @@ def collect_metrics(things_of_interest, G, targets,
             stored_per_x['pow_entropy_per_gate'][g] += entropy_pow
             stored_metrics['ece_per_gate'][g] += cal
 
-        correctly_classified += predicted.eq(
+        correctly_classified += pred_final_head.eq(
             targets)  # getting all the corrects we can
         stored_metrics['cheating_correct'] += correctly_classified.sum().item()
 
@@ -164,9 +166,10 @@ def get_empty_storage_metrics(num_gates):
         'final_margins': []
     }
     stored_metrics = {
-        'acc': 0,
+        'gated_acc': 0, # using early exiting (computed based on where a point exits)
         'final_ece': 0,
         'gated_correct': 0,
+        'final_head_correct_all': 0, # computed on all points including the ones that early exited before
         'total_cost': 0,
         'cheating_correct': 0,
         'num_per_gate': [0 for _ in range(num_gates)],
