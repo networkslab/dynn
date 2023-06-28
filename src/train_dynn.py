@@ -9,8 +9,8 @@ from timm.models import *
 from timm.models import create_model
 
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
-from data_loading.data_loader_helper import get_cifar_10_dataloaders
-from learning_helper import get_surrogate_loss, freeze_backbone as freeze_backbone_helper
+from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root
+from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow
 from utils import progress_bar
 from models.t2t_vit import TrainingPhase
@@ -29,7 +29,7 @@ parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
                     help='Drop path rate (default: None)')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--ckp-path', type=str, default='../checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
+parser.add_argument('--ckp-path', type=str, default='checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
                     help='path to checkpoint transfer learning model')
 
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
@@ -39,6 +39,8 @@ freeze_backbone = True
 transformer_layer_gating = [0, 1, 2, 3, 4, 5]
 barely_train = False
 G = len(transformer_layer_gating)
+bilevel_batch_count = 200
+warmup_batch_count = 50
 
 if barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
@@ -86,8 +88,10 @@ if device == 'cuda':
 
 
 print('==> Resuming from checkpoint..')
-assert os.path.isdir('../checkpoint'), 'Error: no checkpoint directory found!'
-checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
+checkpoint_path = os.path.join(get_path_to_project_root(), 'checkpoint')
+assert os.path.isdir(checkpoint_path)
+checkpoint_path_to_load = os.path.join(checkpoint_path, args.ckp_path)
+checkpoint = torch.load(checkpoint_path_to_load, map_location=torch.device(device))
 param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
 print("Missing keys:", param_with_issues.missing_keys)
 print("Unexpected keys:", param_with_issues.unexpected_keys)
@@ -97,11 +101,14 @@ start_epoch = checkpoint['epoch']
 # Backbone is always frozen
 freeze_backbone_helper(net, ['intermediate_heads', 'gates'])
 parameters = net.parameters()
+
 def switch_training_phase(current_phase):
     if current_phase == TrainingPhase.GATE:
         return TrainingPhase.CLASSIFIER
     elif current_phase == TrainingPhase.CLASSIFIER:
         return TrainingPhase.GATE
+    elif current_phase == TrainingPhase.WARMUP:
+        return TrainingPhase.CLASSIFIER
 
 optimizer = optim.SGD(parameters, lr=args.lr,
                       momentum=0.9, weight_decay=args.wd)
@@ -115,18 +122,29 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
     total = 0
     total_classifier = 0
     total_gate = 0
-    training_phase = TrainingPhase.GATE
-    stored_per_x, stored_metrics = get_empty_storage_metrics(
-        len(transformer_layer_gating))
+    training_phase = TrainingPhase.WARMUP
+    stored_per_x, stored_metrics = get_empty_storage_metrics(G)
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         if classifier_warmup_periods > 0 and batch_idx < classifier_warmup_periods:
-            training_phase = TrainingPhase.CLASSIFIER
+            training_phase = TrainingPhase.WARMUP
+        elif classifier_warmup_periods > 0 and batch_idx == classifier_warmup_periods: # only hit when we switch from warmup to normal
+            # clean slate, we set every counter to zero
+            epoch_loss = 0
+            correct = 0
+            total = 0
+            total_classifier = 0
+            total_gate = 0
+            stored_per_x, stored_metrics = get_empty_storage_metrics(G)
+            training_phase = switch_training_phase(training_phase)
         elif bilevel_opt and batch_idx % bilevel_batch_count == 0:
             training_phase = switch_training_phase(training_phase)
 
-        loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
-
+        if training_phase == TrainingPhase.WARMUP:
+            loss, things_of_interest = get_loss(inputs, targets, optimizer, net)
+        else:
+            loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
+        
         total += targets.size(0)
         loss.backward()
         optimizer.step()
@@ -153,13 +171,31 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
                     'train',
                     gated_acc,
                     loss,
-                    len(transformer_layer_gating),
+                    G,
                     stored_per_x,
                     stored_metrics,
                     total,
                     total_classifier)
                 mlflow.log_metrics(log_dict,
                                    step=batch_idx + (epoch * len(train_loader)))
+        elif training_phase == TrainingPhase.WARMUP:
+            total_classifier+= targets.size(0)
+            loss = epoch_loss / (batch_idx + 1)
+            progress_bar(batch_idx, len(train_loader),'Loss: %.3f | Warmup  time' %(loss))
+
+            if use_mlflow:
+                log_dict = log_metrics_mlflow(
+                    'train',
+                    None,
+                    loss,
+                    G,
+                    stored_per_x,
+                    stored_metrics,
+                    total,
+                    total_classifier)
+                mlflow.log_metrics(log_dict,
+                                    step=batch_idx + (epoch * len(train_loader)))
+
         elif training_phase == TrainingPhase.GATE:
             total_gate += targets.size(0)
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f ' % (loss))
@@ -230,9 +266,9 @@ def test(epoch):
     return stored_metrics
 
 for epoch in range(start_epoch, start_epoch + 5):
-    classifier_warmup_period = 0 if epoch > start_epoch else 200
+    classifier_warmup_period = 0 if epoch > start_epoch else warmup_batch_count
     stored_metrics_train = train(
-        epoch, bilevel_opt=True, bilevel_batch_count=100, classifier_warmup_periods=classifier_warmup_period
+        epoch, bilevel_opt=True, bilevel_batch_count=bilevel_batch_count, classifier_warmup_periods=classifier_warmup_period
     )
     stored_metrics_test = test(epoch)
     scheduler.step()

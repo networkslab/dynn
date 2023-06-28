@@ -11,13 +11,14 @@ def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_m
     entropy = np.mean(stored_per_x['final_entropy']) 
     log_dict = {
                 prefix_logger+'/loss': loss,
-                prefix_logger+'/gated_acc': gated_acc, # using early exiting
                 prefix_logger+'/ece': ece,
                 prefix_logger+'/cheating_acc': cheating_acc,
                 prefix_logger+'/entropy': entropy,
                 prefix_logger+'/cost': cost,
                 prefix_logger+'/final_head_acc_all': stored_metrics['final_head_correct_all'] / total_classifier
     }
+    if gated_acc is not None:
+        log_dict[prefix_logger+'/gated_acc'] = gated_acc # using early exiting
     for g in range(G):
         acc_gate = 100. * stored_metrics['correct_per_gate'][g] / total_classifier
         acc_cheating_gate = 100. * stored_metrics[
