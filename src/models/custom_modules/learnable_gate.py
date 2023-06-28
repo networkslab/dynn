@@ -1,12 +1,22 @@
 import torch
 from torch import Tensor
-from models.custom_modules.gate import Gate
+from src.models.custom_modules.gate import Gate
+from src.uncertainty_metrics import compute_detached_uncertainty_metrics
 
-class ConfidenceScoreThresholdGate(Gate):
-    """Concrete gate that accepts the """
-    def __init__(self, confidence_score_threshold):
+class LearnableGate(Gate):
+    def __init__(self):
         super(Gate, self).__init__()
-        self.threshold = confidence_score_threshold
+        self.dim = 4
+        self.linear = torch.nn.Linear(self.dim, 1)
+
+    def forward(self, logits: Tensor) -> (Tensor):
+        p_maxes, entropies, _, margins, entropy_pows = compute_detached_uncertainty_metrics(logits, None)
+        p_maxes = torch.tensor(p_maxes)[:, None]
+        entropies = torch.tensor(entropies)[:, None]
+        margins = torch.tensor(margins)[:, None]
+        entropy_pows = torch.tensor(entropy_pows)[:, None]
+        uncertainty_metrics = torch.cat((p_maxes, entropies, margins, entropy_pows), dim = 1)
+        return self.linear(uncertainty_metrics.to(logits.device))
 
     def inference_forward(self, input: Tensor, previous_mask: Tensor) -> (Tensor, Tensor):
         """Returns 2 equal-size tensors, the prediction tensor and a tensor containing the indices of predictions

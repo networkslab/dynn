@@ -13,20 +13,24 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 import torchvision
 import torchvision.transforms as transforms
+from models.custom_modules.confidence_score_threshold_gate import ConfidenceScoreThresholdGate
 import os
 import argparse
 import mlflow
 
-from collect_metric_iter import collect_metrics, get_empty_storage_metrics
-from learning_helper import  get_surrogate_loss
+from collect_metric_iter import collect_metrics, evaluate_with_fixed_gating, get_empty_storage_metrics
+from learning_helper import get_loss, get_dumb_loss, get_surrogate_loss
 from log_helper import log_metrics_mlflow
 
 from models import *
 from timm.models import *
+from threshold_helper import THRESH, compute_all_threshold_strategy
 from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
 from models.t2t_vit import TrainingPhase
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, CIFAR_10_IMG_SIZE, get_abs_path
+
 
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
@@ -81,7 +85,7 @@ args = parser.parse_args()
 freeze_backbone = True
 transformer_layer_gating = [0,1,2,3,4,5]
 barely_train = False
-G = len(transformer_layer_gating)
+
 
 if barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
@@ -89,9 +93,11 @@ if barely_train:
 cfg = vars(args)
 use_mlflow = args.use_mlflow
 if use_mlflow:
-    name = "_".join([str(a) for a in [args.dataset, args.b]])
+    name = "_".join([str(a) for a in [args.dataset, args.batch]])
     print(name)
     project = 'DyNN'
+    mlruns_path = get_abs_path(["mlruns"])
+    mlflow.set_tracking_uri(mlruns_path)
     experiment = mlflow.set_experiment(project)
     mlflow.start_run(run_name=name)
     mlflow.log_params(cfg)
@@ -173,7 +179,7 @@ if device == 'cuda':
 if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
-    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+    assert os.path.isdir('../checkpoint'), 'Error: no checkpoint directory found!'
     checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
     param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
     print("Missing keys:", param_with_issues.missing_keys)
@@ -216,76 +222,49 @@ optimizer = optim.SGD(parameters, lr=args.lr,
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
 
-def switch_training_phase(current_phase):
-    if current_phase == TrainingPhase.GATE:
-        return TrainingPhase.CLASSIFIER 
-    elif current_phase == TrainingPhase.CLASSIFIER:
-        return TrainingPhase.GATE
     
-def train(epoch, bilevel_opt = False, bilevel_batch_count = 20):
+def train(epoch):
     print('\nEpoch: %d' % epoch)
     net.train()
     epoch_loss = 0
     correct = 0
     total = 0
-    total_classifier = 0
-    total_gate = 0
-    training_phase =  TrainingPhase.GATE
     stored_per_x, stored_metrics = get_empty_storage_metrics(
         len(transformer_layer_gating))
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
-        # Toggles requires grad to alternate training of classifiers and gates
-        if bilevel_opt and batch_idx % bilevel_batch_count == 0:
-            training_phase = switch_training_phase(training_phase)
-            
-        #     for param in net.module.intermediate_heads.parameters():
-        #         param.requires_grad = not param.requires_grad
-        #     print(f"Setting intermediate heads training to {list(net.module.intermediate_heads.parameters())[0].requires_grad}")
-        #     for param in net.module.gates.parameters():
-        #         param.requires_grad = not param.requires_grad
-        #     print(f"Setting gates training to {list(net.module.gates.parameters())[0].requires_grad}")
-
-        loss, things_of_interest  = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
-        
-
-        total += targets.size(0)
+       
+        loss, intermediate_logits, outputs_logits  = get_loss(inputs, targets, optimizer, net) 
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
+        stored_per_x, stored_metrics, correct, total = collect_metrics(
+            outputs_logits, intermediate_logits,
+            len(transformer_layer_gating), targets, total, correct, device,
+            stored_per_x, stored_metrics)
 
-        stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
-            stored_per_x, stored_metrics, training_phase)
-        if training_phase ==  TrainingPhase.CLASSIFIER: 
-            gated_y_logits = things_of_interest['gated_y_logits']
-            _, predicted = gated_y_logits.max(1)
-            correct += predicted.eq(targets).sum().item()
-            total_classifier+=targets.size(0)
-            # compute metrics to display
-            acc = 100. * correct / total_classifier
+        # compute metrics to display
+        acc = 100. * correct / total
+        cheating_acc = 100. * stored_metrics['cheating_correct'] / total
+        loss = epoch_loss / (batch_idx + 1)
+        progress_bar(
+            batch_idx, len(trainloader),
+            'Loss: %.3f | Acc: %.3f%% (%d/%d) | Cheating: %.3f%%' %
+            (loss, acc, correct, total, cheating_acc))
+
+        if use_mlflow:
+            log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
             
-            loss = epoch_loss / (batch_idx + 1)
-            progress_bar(
-                batch_idx, len(trainloader),
-                'Loss: %.3f | Classifier Acc: %.3f%% (%d/%d)' %
-                (loss, acc, correct, total_classifier))
 
-            if use_mlflow:
-                log_dict = log_metrics_mlflow('train', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total, total_classifier)
-                
-
-                mlflow.log_metrics(log_dict,
-                                step=batch_idx + (epoch * len(trainloader)))
-        elif training_phase ==  TrainingPhase.GATE: 
-            total_gate+=targets.size(0)
-            progress_bar(batch_idx, len(trainloader),'Loss: %.3f ' %(loss))
+            mlflow.log_metrics(log_dict,
+                               step=batch_idx + (epoch * len(trainloader)))
         if barely_train:
             if batch_idx>50:
                 print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
                 break
     stored_metrics['acc'] = acc
-
-    
+    data_name = 'train_epoch{}'.format(epoch)
+    compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics, acc)
     return stored_metrics
 
 
@@ -301,38 +280,27 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            loss, things_of_interest  = get_surrogate_loss(inputs, targets, optimizer, net)
-            
-           
-            
-            gated_y_logits = things_of_interest['gated_y_logits']
-            _, predicted = gated_y_logits.max(1)
-            correct += predicted.eq(targets).sum().item()
-            total+=targets.size(0)
-            
+            loss, outputs_logits, intermediate_outputs = get_loss(
+                inputs, targets, optimizer, net)
             test_loss += loss.item()
-            stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
-            stored_per_x, stored_metrics, TrainingPhase.CLASSIFIER)
-            
-
+            stored_per_x, stored_metrics, correct, total = collect_metrics(
+                outputs_logits, intermediate_outputs,
+                len(transformer_layer_gating), targets, total, correct, device,
+                stored_per_x, stored_metrics)
             acc = 100. * correct / total
             loss = test_loss / (batch_idx + 1)
             progress_bar(
                 batch_idx, len(testloader),
                 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (loss, acc, correct, total))
-
-            if barely_train:
-                if batch_idx>50:
-                    print('++++++++++++++WARNING++++++++++++++ you are barely testing to test some things')
-                    break
         if use_mlflow:
-            log_dict = log_metrics_mlflow('test', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total, total_classifier=total)
+            log_dict = log_metrics_mlflow('test', acc, loss, len(transformer_layer_gating), stored_per_x,stored_metrics, total)
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(trainloader)))
     # Save checkpoint.
     
-   
+    data_name = 'test_epoch{}'.format(epoch)
+    compute_all_threshold_strategy(data_name, stored_per_x, stored_metrics, acc)
     
     if acc > best_acc:
         print('Saving..')
@@ -354,11 +322,59 @@ def test(epoch):
     return stored_metrics
 
 
+def test_with_gating(epoch, thresholds, name_threhold, thresh_type):
+    global best_acc
+    net.eval()
+    test_loss = 0
+    correct = 0
+    total = 0
+    gates = [ConfidenceScoreThresholdGate(0.4) for i in range(len(thresholds))]
+    net.module.set_threshold_gates(gates)
+    stored_per_x, stored_metrics = get_empty_storage_metrics(
+        len(transformer_layer_gating))
+    with torch.no_grad():
+        for batch_idx, (inputs, targets) in enumerate(testloader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            loss, outputs_logits, intermediate_outputs = get_loss(
+                inputs, targets, optimizer, net)
+            test_loss += loss.item()
+            stored_metrics = evaluate_with_fixed_gating(thresholds, outputs_logits,
+                                                  intermediate_outputs,
+                                                  targets, stored_metrics, thresh_type)
+            
+            cost =  stored_metrics['total_cost']/total
+            gated_acc = 100.*stored_metrics['gated_correct']/total
+            progress_bar(
+                batch_idx, len(testloader),
+                'Cost: %.3f | Gated Acc: %.3f%% ' %
+                (cost, gated_acc))
+        if use_mlflow:
+            log_dict = {name_threhold+'/cost' :cost,
+            name_threhold+'/gated_acc' :gated_acc
+            }
+
+            for g in range(len(transformer_layer_gating)):
+                
+                log_dict[name_threhold+'/thresh' + str(g)] = thresholds[g]
+                log_dict[name_threhold+'/num' + str(g)] = thresholds[g]
+
+    
 
 
 for epoch in range(start_epoch, start_epoch + 5):
     stored_metrics_train = train(epoch, bilevel_opt=True, bilevel_batch_count=100)
     stored_metrics_test = test(epoch)
+
+
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_pmax'], 'test_thr_pmax', THRESH.PMAX)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_pmax'], 'train_thr_pmax', THRESH.PMAX)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy'], 'test_thr_entropy' , THRESH.ENTROPY)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy'], 'train_thr_entropy', THRESH.ENTROPY)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_entropy_pow'], 'test_thr_powentropy', THRESH.POWENTROPY)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_entropy_pow'], 'train_thr_powentropy', THRESH.POWENTROPY)
+    test_with_gating(epoch, stored_metrics_test['optim_threshold_margins'], 'test_thr_margins', THRESH.MARGINS)
+    test_with_gating(epoch, stored_metrics_train['optim_threshold_margins'], 'train_thr_margins', THRESH.MARGINS)
+
     scheduler.step()
 
 mlflow.end_run()

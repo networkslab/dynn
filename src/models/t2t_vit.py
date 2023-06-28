@@ -16,9 +16,8 @@ import numpy as np
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
-from models.custom_modules.custom_GELU import CustomGELU
-from models.custom_modules.learnable_gate import LearnableGate
-from torch import Tensor
+from .custom_modules.custom_GELU import CustomGELU
+from .custom_modules.learnable_gate import LearnableGate
 from enum import Enum
 class TrainingPhase(Enum):
     CLASSIFIER = 1
@@ -132,7 +131,7 @@ class T2T_ViT(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches + 1, d_hid=embed_dim), requires_grad=False)
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.cost_perf_tradeoff = 0.1
+        self.cost_perf_tradeoff = 0
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
             Block(
@@ -185,21 +184,21 @@ class T2T_ViT(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = x + self.pos_embed
         x = self.pos_drop(x)
-        intermediate_outs = []
-        # return multiple predictions based on where the heads are.
+        intermediate_transformer_outs = []
         for blk_idx, blk in enumerate(self.blocks):
             x, act_code = blk.forward_get_code(x)
-            if blk_idx in self.intermediate_head_positions:
-                intermediate_outs.append(x)
-        intermediate_outs = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_outs))
+            if hasattr(self, 'intermediate_head_positions') and blk_idx in self.intermediate_head_positions:
+                intermediate_transformer_outs.append(x)
+        intermediate_transformer_outs = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_transformer_outs))
         x = self.norm(x)
-        return x[:, 0], intermediate_outs
+        return x[:, 0], intermediate_transformer_outs
 
     def forward(self, x):
         x, intermediate_transformer_outs = self._forward_features(x)
         intermediate_outs = []
-        for head_idx, intermediate_head in enumerate(self.intermediate_heads):
-            intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
+        if not not intermediate_transformer_outs:
+            for head_idx, intermediate_head in enumerate(self.intermediate_heads):
+                intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
         x = self.head(x)
         # The intermediate outs are unnormalized
         return x, intermediate_outs
@@ -246,7 +245,7 @@ class T2T_ViT(nn.Module):
             # Gates are frozen, find first exit gate
             intermediate_logits = []
             num_exits_per_gate = []
-            early_exit_logits = torch.zeros_like(final_logits)
+            gated_y_logits = torch.zeros_like(final_logits)
             past_exits = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
             for l, intermediate_head in enumerate(self.intermediate_heads):
                 current_logits = intermediate_head(intermediate_transformer_outs[l])
@@ -255,13 +254,20 @@ class T2T_ViT(nn.Module):
                 do_exit = torch.bernoulli(current_gate_prob)
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
                 num_exits_per_gate.append(torch.sum(current_exit))
-                past_exits = torch.logical_or(current_exit, past_exits) 
-                early_exit_logits = early_exit_logits + torch.mul(current_exit, current_logits)
+                # Update past_exists to include the currently exited ones for next iteration
+                past_exits = torch.logical_or(current_exit, past_exits)
+                # Update early_exit_logits which include all predictions across all layers
+                gated_y_logits = gated_y_logits + torch.mul(current_exit, current_logits)
             final_gate_exit = torch.logical_not(past_exits)
             num_exits_per_gate.append(torch.sum(final_gate_exit))
-            early_exit_logits = early_exit_logits + torch.mul(final_gate_exit, final_logits) # last gate
-            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'num_exits_per_gate':num_exits_per_gate}
-            return early_exit_logits, things_of_interest
+            gated_y_logits = gated_y_logits + torch.mul(final_gate_exit, final_logits) # last gate
+            things_of_interest = {
+                'intermediate_logits':intermediate_logits,
+                'final_logits':final_logits,
+                'num_exits_per_gate':num_exits_per_gate,
+                'gated_y_logits': gated_y_logits
+            }
+            return gated_y_logits, things_of_interest
         elif training_phase == TrainingPhase.GATE:
             intermediate_losses = []
             gate_logits = []
