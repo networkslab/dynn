@@ -10,14 +10,15 @@ criterion = nn.CrossEntropyLoss()
 def get_loss(inputs, targets, optimizer, net):
 
     optimizer.zero_grad()
-    outputs_logits, intermediate_outputs = net(inputs)
+    final_logits, intermediate_logits = net(inputs)
     loss = criterion(
-        outputs_logits,
+        final_logits,
         targets)  # the grad_fn of this loss should be None if frozen
-    for intermediate_output in intermediate_outputs:
-        intermediate_loss = criterion(intermediate_output, targets)
+    for intermediate_logit in intermediate_logits:
+        intermediate_loss = criterion(intermediate_logit, targets)
         loss += intermediate_loss
-    return loss, outputs_logits, intermediate_outputs
+    things_of_interest = {'intermediate_logits':intermediate_logits,'final_logits':final_logits}
+    return loss, things_of_interest
 
 
 def get_dumb_loss(inputs, targets, optimizer, net):

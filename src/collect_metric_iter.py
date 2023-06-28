@@ -58,18 +58,12 @@ def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, targ
 
 def collect_metrics(things_of_interest, G, targets,
                     device, stored_per_x, stored_metrics, training_phase):
-    if training_phase == TrainingPhase.CLASSIFIER:
+    if training_phase == TrainingPhase.CLASSIFIER or training_phase == TrainingPhase.WARMUP:
         intermediate_logits = things_of_interest['intermediate_logits']
-        num_exits_per_gate = things_of_interest['num_exits_per_gate']
-        gated_y_logits = things_of_interest['gated_y_logits']
-        _, predicted = gated_y_logits.max(1)
-       
-        total_cost = compute_cost(num_exits_per_gate, G)
-        stored_metrics['total_cost'] += total_cost
-        
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
         stored_metrics['final_head_correct_all'] += pred_final_head.eq(targets).sum().item()
+
         # uncertainty related stats to be aggregated
         p_max, entropy, ece, margins, entropy_pow = compute_detached_uncertainty_metrics(final_y_logits, targets)
         stored_per_x['final_p_max'] += p_max
@@ -78,16 +72,16 @@ def collect_metrics(things_of_interest, G, targets,
         stored_per_x['final_margins'] += margins
         
         stored_metrics['final_ece'] += ece
-        
-        # different accuracy to be cumulated
-        correctly_classified = torch.full(predicted.eq(targets).shape,
+
+        # the cheating accuracy
+        correctly_classified = torch.full(pred_final_head.eq(targets).shape,
                                         False).to(device)
         for g in range(G):
             # normal accuracy
             _, predicted_inter = intermediate_logits[g].max(1)
             correct_gate = predicted_inter.eq(targets)
             stored_metrics['correct_per_gate'][g] += correct_gate.sum().item()
-            stored_metrics['num_per_gate'][g] += free(num_exits_per_gate[g])
+            
             # keeping all the corrects we have from previous gates
             correctly_classified += correct_gate
             stored_metrics['correct_cheating_per_gate'][
@@ -105,6 +99,20 @@ def collect_metrics(things_of_interest, G, targets,
         correctly_classified += pred_final_head.eq(
             targets)  # getting all the corrects we can
         stored_metrics['cheating_correct'] += correctly_classified.sum().item()
+
+
+        if training_phase == TrainingPhase.CLASSIFIER:
+            num_exits_per_gate = things_of_interest['num_exits_per_gate']
+            gated_y_logits = things_of_interest['gated_y_logits']
+            _, predicted = gated_y_logits.max(1)
+        
+            total_cost = compute_cost(num_exits_per_gate, G)
+            stored_metrics['total_cost'] += total_cost
+            for g in range(G):
+                stored_metrics['num_per_gate'][g] += free(num_exits_per_gate[g])
+        
+        
+        
 
     return stored_per_x, stored_metrics
 

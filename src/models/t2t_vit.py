@@ -22,6 +22,7 @@ from enum import Enum
 class TrainingPhase(Enum):
     CLASSIFIER = 1
     GATE = 2
+    WARMUP=3
 
 
 def _cfg(url='', **kwargs):
@@ -195,13 +196,13 @@ class T2T_ViT(nn.Module):
 
     def forward(self, x):
         x, intermediate_transformer_outs = self._forward_features(x)
-        intermediate_outs = []
-        if not not intermediate_transformer_outs:
+        intermediate_logits = []
+        if intermediate_transformer_outs: # what is this?
             for head_idx, intermediate_head in enumerate(self.intermediate_heads):
-                intermediate_outs.append(intermediate_head(intermediate_transformer_outs[head_idx]))
+                intermediate_logits.append(intermediate_head(intermediate_transformer_outs[head_idx]))
         x = self.head(x)
         # The intermediate outs are unnormalized
-        return x, intermediate_outs
+        return x, intermediate_logits
 
 
     # this is only to be used for training

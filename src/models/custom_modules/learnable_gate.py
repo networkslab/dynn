@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
-from src.models.custom_modules.gate import Gate
-from src.uncertainty_metrics import compute_detached_uncertainty_metrics
+from models.custom_modules.gate import Gate
+from uncertainty_metrics import compute_detached_uncertainty_metrics
 
 class LearnableGate(Gate):
     def __init__(self):
