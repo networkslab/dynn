@@ -23,6 +23,12 @@ parser.add_argument('--dataset', type=str, default='cifar10',
                     help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64,
                     help='batch size')
+parser.add_argument('--ce_ic_tradeoff', default=0, type=float, help='cost inference and cross entropy loss tradeoff')
+parser.add_argument('--G', default=6, type=int, help='number of gates')
+parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
+parser.add_argument('--warmup_batch_count', default=50, type=int, help='number of batches for warmup where all classifier are trained')
+parser.add_argument('--bilevel_batch_count', default=200, type=int, help='number of batches before switching the training modes')
+parser.add_argument('--barely_train', action='store_true', help='not a real run')
 parser.add_argument('--resume', '-r', action='store_true',
                     help='resume from checkpoint')
 parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
@@ -35,14 +41,10 @@ parser.add_argument('--ckp-path', type=str, default='checkpoint_cifar10_t2t_vit_
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
 
-freeze_backbone = True
-transformer_layer_gating = [0, 1, 2, 3, 4, 5]
-barely_train = False
-G = len(transformer_layer_gating)
-bilevel_batch_count = 200
-warmup_batch_count = 50
+transformer_layer_gating = [g for g in range(args.G)]
 
-if barely_train:
+
+if args.barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
 
 use_mlflow = args.use_mlflow
@@ -77,6 +79,7 @@ net = create_model(
     bn_eps=None,
     img_size=IMG_SIZE)
 
+net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
 net.set_learnable_gates(transformer_layer_gating)
 
@@ -123,7 +126,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
     total_classifier = 0
     total_gate = 0
     training_phase = TrainingPhase.WARMUP
-    stored_per_x, stored_metrics = get_empty_storage_metrics(G)
+    stored_per_x, stored_metrics = get_empty_storage_metrics(args.G)
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         if classifier_warmup_periods > 0 and batch_idx < classifier_warmup_periods:
@@ -135,7 +138,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
             total = 0
             total_classifier = 0
             total_gate = 0
-            stored_per_x, stored_metrics = get_empty_storage_metrics(G)
+            stored_per_x, stored_metrics = get_empty_storage_metrics(args.G)
             training_phase = switch_training_phase(training_phase)
         elif bilevel_opt and batch_idx % bilevel_batch_count == 0:
             training_phase = switch_training_phase(training_phase)
@@ -150,7 +153,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
         optimizer.step()
         epoch_loss += loss.item()
 
-        stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
+        stored_per_x, stored_metrics = collect_metrics(things_of_interest, args.G, targets, device,
                                                        stored_per_x, stored_metrics, training_phase)
         if training_phase == TrainingPhase.CLASSIFIER:
             gated_y_logits = things_of_interest['gated_y_logits']
@@ -171,7 +174,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
                     'train',
                     gated_acc,
                     loss,
-                    G,
+                    args.G,
                     stored_per_x,
                     stored_metrics,
                     total,
@@ -188,7 +191,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
                     'train',
                     None,
                     loss,
-                    G,
+                    args.G,
                     stored_per_x,
                     stored_metrics,
                     total,
@@ -199,7 +202,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
         elif training_phase == TrainingPhase.GATE:
             total_gate += targets.size(0)
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f ' % (loss))
-        if barely_train:
+        if args.barely_train:
             if batch_idx > 50:
                 print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
                 break
@@ -226,7 +229,7 @@ def test(epoch):
             total+=targets.size(0)
 
             test_loss += loss.item()
-            stored_per_x, stored_metrics = collect_metrics(things_of_interest, G, targets, device,
+            stored_per_x, stored_metrics = collect_metrics(things_of_interest, args.G, targets, device,
                                                            stored_per_x, stored_metrics, TrainingPhase.CLASSIFIER)
 
 
@@ -237,7 +240,7 @@ def test(epoch):
                 'Loss: %.3f | Acc: %.3f%% (%d/%d)' %
                 (loss, acc, correct, total))
 
-            if barely_train:
+            if args.barely_train:
                 if batch_idx>50:
                     print('++++++++++++++WARNING++++++++++++++ you are barely testing to test some things')
                     break
@@ -265,10 +268,10 @@ def test(epoch):
         mlflow.log_metrics(log_dict)
     return stored_metrics
 
-for epoch in range(start_epoch, start_epoch + 5):
-    classifier_warmup_period = 0 if epoch > start_epoch else warmup_batch_count
+for epoch in range(start_epoch, start_epoch + args.num_epoch):
+    classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
     stored_metrics_train = train(
-        epoch, bilevel_opt=True, bilevel_batch_count=bilevel_batch_count, classifier_warmup_periods=classifier_warmup_period
+        epoch, bilevel_opt=True, bilevel_batch_count=args.bilevel_batch_count, classifier_warmup_periods=classifier_warmup_period
     )
     stored_metrics_test = test(epoch)
     scheduler.step()
