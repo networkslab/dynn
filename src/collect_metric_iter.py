@@ -56,7 +56,7 @@ def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, targ
     return list_optimal_threshold
 
 
-def collect_metrics(things_of_interest, G, targets,
+def collect_metrics(things_of_interest, gates_count, targets,
                     device, stored_per_x, stored_metrics, training_phase):
     if training_phase == TrainingPhase.CLASSIFIER:
         intermediate_logits = things_of_interest['intermediate_logits']
@@ -64,9 +64,14 @@ def collect_metrics(things_of_interest, G, targets,
         gated_y_logits = things_of_interest['gated_y_logits']
         _, predicted = gated_y_logits.max(1)
        
-        total_cost = compute_cost(num_exits_per_gate, G)
+        total_cost = compute_cost(num_exits_per_gate, gates_count)
         stored_metrics['total_cost'] += total_cost
-        
+        correct_number_per_gate_batch = compute_correct_number_per_gate(
+            gates_count,
+            things_of_interest['sample_exit_level_map'],
+            targets,
+            predicted
+        )
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
         stored_metrics['final_head_correct_all'] += pred_final_head.eq(targets).sum().item()
@@ -78,11 +83,15 @@ def collect_metrics(things_of_interest, G, targets,
         stored_per_x['final_margins'] += margins
         
         stored_metrics['final_ece'] += ece
+        for gate_idx, pred_tuple in correct_number_per_gate_batch.items():
+            stored_metrics['gated_correct_count_per_gate'][gate_idx] += pred_tuple[0]
+            stored_metrics['gated_pred_count_per_gate'][gate_idx] += pred_tuple[1]
+
         
         # different accuracy to be cumulated
         correctly_classified = torch.full(predicted.eq(targets).shape,
                                         False).to(device)
-        for g in range(G):
+        for g in range(gates_count):
             # normal accuracy
             _, predicted_inter = intermediate_logits[g].max(1)
             correct_gate = predicted_inter.eq(targets)
@@ -107,6 +116,28 @@ def collect_metrics(things_of_interest, G, targets,
         stored_metrics['cheating_correct'] += correctly_classified.sum().item()
 
     return stored_per_x, stored_metrics
+
+def compute_correct_number_per_gate(number_of_gates: int,
+                                    sample_exit_level_map: torch.Tensor,
+                                    targets: torch.Tensor,
+                                    predicted: torch.Tensor
+                                    ):
+    """
+    Computes the number of correct predictions a gate made only on the samples that it exited.
+
+    :param number_of_gates Number of gates in the dynn. We need this in case some gates are never reached
+    :param sample_exit_level_map: A tensor the same size as targets that holds the exit level for each sample
+    :param targets: ground truths
+    :param predicted: predictions of the dynamic network
+    :return: A map  where the key is gate_idx and the value is a tuple (correct_count, total_predictions_of_gate_count)
+    """
+    result_map = {}
+    for gate_idx in range(number_of_gates):
+        gate_predictions_idx = (sample_exit_level_map == gate_idx).nonzero()
+        pred_count = len(gate_predictions_idx)
+        correct_pred_count = torch.sum((predicted[gate_predictions_idx].eq(targets[gate_predictions_idx]))).item()
+        result_map[gate_idx] = (correct_pred_count, pred_count)
+    return result_map
 
 def compute_cost(num_exits_per_gate, G):
     cost_per_gate = [
@@ -176,7 +207,9 @@ def get_empty_storage_metrics(num_gates):
         'cost_per_gate': [0 for _ in range(num_gates)],
         'ece_per_gate': [0 for _ in range(num_gates)],
         'correct_per_gate': [0 for _ in range(num_gates)],
-        'correct_cheating_per_gate': [0 for _ in range(num_gates)]
+        'correct_cheating_per_gate': [0 for _ in range(num_gates)],
+        'gated_correct_count_per_gate': [0 for _ in range(num_gates)],
+        'gated_pred_count_per_gate': [0 for _ in range(num_gates)]
     }
     return stored_per_x, stored_metrics
 
