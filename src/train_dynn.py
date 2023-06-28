@@ -9,7 +9,7 @@ from timm.models import *
 from timm.models import create_model
 
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
-from data_loading.data_loader_helper import get_cifar_10_dataloaders
+from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root
 from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow
 from utils import progress_bar
@@ -29,7 +29,7 @@ parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
                     help='Drop path rate (default: None)')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--ckp-path', type=str, default='checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
+parser.add_argument('--ckp-path', type=str, default='checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
                     help='path to checkpoint transfer learning model')
 
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
@@ -39,6 +39,8 @@ freeze_backbone = True
 transformer_layer_gating = [0, 1, 2, 3, 4, 5]
 barely_train = False
 G = len(transformer_layer_gating)
+bilevel_batch_count = 200
+warmup_batch_count = 50
 
 if barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
@@ -86,8 +88,10 @@ if device == 'cuda':
 
 
 print('==> Resuming from checkpoint..')
-assert os.path.isdir('checkpoint')
-checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
+checkpoint_path = os.path.join(get_path_to_project_root(), 'checkpoint')
+assert os.path.isdir(checkpoint_path)
+checkpoint_path_to_load = os.path.join(checkpoint_path, args.ckp_path)
+checkpoint = torch.load(checkpoint_path_to_load, map_location=torch.device(device))
 param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
 print("Missing keys:", param_with_issues.missing_keys)
 print("Unexpected keys:", param_with_issues.unexpected_keys)
@@ -262,9 +266,9 @@ def test(epoch):
     return stored_metrics
 
 for epoch in range(start_epoch, start_epoch + 5):
-    classifier_warmup_period = 0 if epoch > start_epoch else 50
+    classifier_warmup_period = 0 if epoch > start_epoch else warmup_batch_count
     stored_metrics_train = train(
-        epoch, bilevel_opt=True, bilevel_batch_count=200, classifier_warmup_periods=classifier_warmup_period
+        epoch, bilevel_opt=True, bilevel_batch_count=bilevel_batch_count, classifier_warmup_periods=classifier_warmup_period
     )
     stored_metrics_test = test(epoch)
     scheduler.step()

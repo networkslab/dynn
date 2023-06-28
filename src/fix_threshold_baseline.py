@@ -29,7 +29,7 @@ from utils import progress_bar
 from timm.models import create_model
 from utils import load_for_transfer_learning
 from models.t2t_vit import TrainingPhase
-from data_loading.data_loader_helper import get_cifar_10_dataloaders, CIFAR_10_IMG_SIZE, get_abs_path
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, CIFAR_10_IMG_SIZE, get_abs_path, get_path_to_project_root
 
 
 
@@ -76,7 +76,7 @@ parser.add_argument('--transfer-model', type=str, default=None,
                     help='Path to pretrained model for transfer learning')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--ckp-path', type=str, default='checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
+parser.add_argument('--ckp-path', type=str, default='checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
                     help='path to checkpoint transfer learning model')
 # us
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
@@ -179,7 +179,9 @@ if device == 'cuda':
 if args.resume:
     # Load checkpoint.
     print('==> Resuming from checkpoint..')
-    assert os.path.isdir('../checkpoint'), 'Error: no checkpoint directory found!'
+    checkpoint_path = os.path.join(get_path_to_project_root(), 'checkpoint')
+    assert os.path.isdir(checkpoint_path)
+    checkpoint_path_to_load = os.path.join(checkpoint_path, args.ckp_path)
     checkpoint = torch.load(args.ckp_path, map_location=torch.device(device))
     param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
     print("Missing keys:", param_with_issues.missing_keys)
