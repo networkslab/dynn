@@ -131,7 +131,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
         inputs, targets = inputs.to(device), targets.to(device)
         if classifier_warmup_periods > 0 and batch_idx < classifier_warmup_periods:
             training_phase = TrainingPhase.WARMUP
-        elif classifier_warmup_periods > 0 and batch_idx <= classifier_warmup_periods: # only hit when we switch from warmup to normal
+        elif classifier_warmup_periods > 0 and batch_idx == classifier_warmup_periods: # only hit when we switch from warmup to normal
             # clean slate, we set every counter to zero
             epoch_loss = 0
             correct = 0

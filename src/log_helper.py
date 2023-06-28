@@ -29,9 +29,16 @@ def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_m
         log_dict[prefix_logger+'/cheating_acc' + str(g)] = acc_cheating_gate
         log_dict[prefix_logger+'/entropy' + str(g)] = entropy_per_gate
         log_dict[prefix_logger+'/ece' + str(g)] = ece_gate
-        log_dict[prefix_logger+'/percent_exit' + str(g)] = stored_metrics['num_per_gate'][g]/ total_classifier
+        log_dict[prefix_logger+'/percent_exit' + str(g)] = stored_metrics['num_per_gate'][g] / total_classifier * 100
+        log_dict[prefix_logger + '/gated_acc' + str(g)] = compute_gated_accuracy(stored_metrics, g)
     return log_dict
 
+def compute_gated_accuracy(stored_metrics, gate_idx):
+    pred_count = stored_metrics['gated_pred_count_per_gate'][gate_idx]
+    correct_count = stored_metrics['gated_correct_count_per_gate'][gate_idx]
+    if pred_count == 0:
+        return 0
+    return correct_count / pred_count * 100
 def setup_mlflow(run_name: str, cfg):
     print(run_name)
     project = 'DyNN'

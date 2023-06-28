@@ -56,10 +56,28 @@ def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, targ
     return list_optimal_threshold
 
 
-def collect_metrics(things_of_interest, G, targets,
+def collect_metrics(things_of_interest, gates_count, targets,
                     device, stored_per_x, stored_metrics, training_phase):
     if training_phase == TrainingPhase.CLASSIFIER or training_phase == TrainingPhase.WARMUP:
         intermediate_logits = things_of_interest['intermediate_logits']
+        if training_phase == TrainingPhase.CLASSIFIER: # the warmup phase do not have those metrics
+            num_exits_per_gate = things_of_interest['num_exits_per_gate']
+            gated_y_logits = things_of_interest['gated_y_logits']
+            _, predicted = gated_y_logits.max(1)
+            total_cost = compute_cost(num_exits_per_gate, gates_count)
+            stored_metrics['total_cost'] += total_cost
+
+            correct_number_per_gate_batch = compute_correct_number_per_gate(
+                gates_count,
+                things_of_interest['sample_exit_level_map'],
+                targets,
+                predicted
+            )
+            for gate_idx, pred_tuple in correct_number_per_gate_batch.items():
+                stored_metrics['gated_correct_count_per_gate'][gate_idx] += pred_tuple[0]
+                stored_metrics['gated_pred_count_per_gate'][gate_idx] += pred_tuple[1]
+
+
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
         stored_metrics['final_head_correct_all'] += pred_final_head.eq(targets).sum().item()
@@ -70,22 +88,24 @@ def collect_metrics(things_of_interest, G, targets,
         stored_per_x['final_entropy'] += entropy
         stored_per_x['final_pow_entropy'] += entropy_pow
         stored_per_x['final_margins'] += margins
-        
         stored_metrics['final_ece'] += ece
 
         # the cheating accuracy
-        correctly_classified = torch.full(pred_final_head.eq(targets).shape,
-                                        False).to(device)
-        for g in range(G):
+        shape_of_correct = pred_final_head.eq(targets).shape
+        correct_class_cheating = torch.full(shape_of_correct,False).to(device)
+        
+
+        for g in range(gates_count):
+
             # normal accuracy
             _, predicted_inter = intermediate_logits[g].max(1)
             correct_gate = predicted_inter.eq(targets)
             stored_metrics['correct_per_gate'][g] += correct_gate.sum().item()
             
             # keeping all the corrects we have from previous gates
-            correctly_classified += correct_gate
+            correct_class_cheating += correct_gate
             stored_metrics['correct_cheating_per_gate'][
-                g] += correctly_classified.sum().item()
+                g] += correct_class_cheating.sum().item() # getting all the corrects we can
 
             p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(
                 intermediate_logits[g], targets)
@@ -96,25 +116,38 @@ def collect_metrics(things_of_interest, G, targets,
             stored_per_x['pow_entropy_per_gate'][g] += entropy_pow
             stored_metrics['ece_per_gate'][g] += cal
 
-        correctly_classified += pred_final_head.eq(
-            targets)  # getting all the corrects we can
-        stored_metrics['cheating_correct'] += correctly_classified.sum().item()
+        correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
+        stored_metrics['cheating_correct'] += correct_class_cheating.sum().item()
 
 
-        if training_phase == TrainingPhase.CLASSIFIER:
-            num_exits_per_gate = things_of_interest['num_exits_per_gate']
-            gated_y_logits = things_of_interest['gated_y_logits']
-            _, predicted = gated_y_logits.max(1)
-        
-            total_cost = compute_cost(num_exits_per_gate, G)
-            stored_metrics['total_cost'] += total_cost
-            for g in range(G):
-                stored_metrics['num_per_gate'][g] += free(num_exits_per_gate[g])
+       
         
         
         
 
     return stored_per_x, stored_metrics
+
+def compute_correct_number_per_gate(number_of_gates: int,
+                                    sample_exit_level_map: torch.Tensor,
+                                    targets: torch.Tensor,
+                                    predicted: torch.Tensor
+                                    ):
+    """
+    Computes the number of correct predictions a gate made only on the samples that it exited.
+
+    :param number_of_gates Number of gates in the dynn. We need this in case some gates are never reached
+    :param sample_exit_level_map: A tensor the same size as targets that holds the exit level for each sample
+    :param targets: ground truths
+    :param predicted: predictions of the dynamic network
+    :return: A map  where the key is gate_idx and the value is a tuple (correct_count, total_predictions_of_gate_count)
+    """
+    result_map = {}
+    for gate_idx in range(number_of_gates):
+        gate_predictions_idx = (sample_exit_level_map == gate_idx).nonzero()
+        pred_count = len(gate_predictions_idx)
+        correct_pred_count = torch.sum((predicted[gate_predictions_idx].eq(targets[gate_predictions_idx]))).item()
+        result_map[gate_idx] = (correct_pred_count, pred_count)
+    return result_map
 
 def compute_cost(num_exits_per_gate, G):
     cost_per_gate = [
@@ -184,7 +217,9 @@ def get_empty_storage_metrics(num_gates):
         'cost_per_gate': [0 for _ in range(num_gates)],
         'ece_per_gate': [0 for _ in range(num_gates)],
         'correct_per_gate': [0 for _ in range(num_gates)],
-        'correct_cheating_per_gate': [0 for _ in range(num_gates)]
+        'correct_cheating_per_gate': [0 for _ in range(num_gates)],
+        'gated_correct_count_per_gate': [0 for _ in range(num_gates)],
+        'gated_pred_count_per_gate': [0 for _ in range(num_gates)]
     }
     return stored_per_x, stored_metrics
 
