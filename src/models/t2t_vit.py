@@ -246,7 +246,8 @@ class T2T_ViT(nn.Module):
             # Gates are frozen, find first exit gate
             intermediate_logits = []
             num_exits_per_gate = []
-            gated_y_logits = torch.zeros_like(final_logits)
+            gated_y_logits = torch.zeros_like(final_logits) # holds the accumulated predictions in a single tensor
+            sample_exit_level_map = torch.zeros_like(targets) # holds the exit level of each prediction
             past_exits = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
             for l, intermediate_head in enumerate(self.intermediate_heads):
                 current_logits = intermediate_head(intermediate_transformer_outs[l])
@@ -254,6 +255,8 @@ class T2T_ViT(nn.Module):
                 current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
                 do_exit = torch.bernoulli(current_gate_prob)
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
+                current_exit_index = current_exit.flatten().nonzero()
+                sample_exit_level_map[current_exit_index] = l
                 num_exits_per_gate.append(torch.sum(current_exit))
                 # Update past_exists to include the currently exited ones for next iteration
                 past_exits = torch.logical_or(current_exit, past_exits)
@@ -266,7 +269,8 @@ class T2T_ViT(nn.Module):
                 'intermediate_logits':intermediate_logits,
                 'final_logits':final_logits,
                 'num_exits_per_gate':num_exits_per_gate,
-                'gated_y_logits': gated_y_logits
+                'gated_y_logits': gated_y_logits,
+                'sample_exit_level_map': sample_exit_level_map
             }
             return gated_y_logits, things_of_interest
         elif training_phase == TrainingPhase.GATE:
@@ -292,7 +296,7 @@ class T2T_ViT(nn.Module):
             gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
             # addressing the class imbalance avec audace
             weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)-1) +1
-            gate_loss = torch.mean(gate_loss* weight_per_sample_per_gate)
+            gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
             things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
             return gate_loss, things_of_interest
 
