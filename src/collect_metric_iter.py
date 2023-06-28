@@ -74,8 +74,8 @@ def collect_metrics(things_of_interest, G, targets,
         stored_metrics['final_ece'] += ece
 
         # the cheating accuracy
-        correctly_classified = torch.full(pred_final_head.eq(targets).shape,
-                                        False).to(device)
+        shape_of_correct = pred_final_head.eq(targets).shape
+        correct_class_cheating = torch.full(shape_of_correct,False).to(device)
         for g in range(G):
             # normal accuracy
             _, predicted_inter = intermediate_logits[g].max(1)
@@ -83,9 +83,9 @@ def collect_metrics(things_of_interest, G, targets,
             stored_metrics['correct_per_gate'][g] += correct_gate.sum().item()
             
             # keeping all the corrects we have from previous gates
-            correctly_classified += correct_gate
+            correct_class_cheating += correct_gate
             stored_metrics['correct_cheating_per_gate'][
-                g] += correctly_classified.sum().item()
+                g] += correct_class_cheating.sum().item() # getting all the corrects we can
 
             p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(
                 intermediate_logits[g], targets)
@@ -96,9 +96,8 @@ def collect_metrics(things_of_interest, G, targets,
             stored_per_x['pow_entropy_per_gate'][g] += entropy_pow
             stored_metrics['ece_per_gate'][g] += cal
 
-        correctly_classified += pred_final_head.eq(
-            targets)  # getting all the corrects we can
-        stored_metrics['cheating_correct'] += correctly_classified.sum().item()
+        correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
+        stored_metrics['cheating_correct'] += correct_class_cheating.sum().item()
 
 
         if training_phase == TrainingPhase.CLASSIFIER:
