@@ -324,9 +324,8 @@ class T2T_ViT(nn.Module):
             intermediate_losses.append(final_level_loss)
             
             gate_target = torch.argmin(torch.cat(intermediate_losses, dim = 1), dim = 1) # For each sample in batch, which gate should exit
-            gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads))
-            if gate_target_one_hot.shape[1] == len(self.intermediate_heads)+1:
-                gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we dont have a gate there.
+            gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads)+1)
+            gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we dont have a gate there.
             gate_logits = torch.cat(gate_logits, dim=1)
             gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
             # addressing the class imbalance avec audace
