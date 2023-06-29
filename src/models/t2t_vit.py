@@ -289,6 +289,7 @@ class T2T_ViT(nn.Module):
                 # Update early_exit_logits which include all predictions across all layers
                 gated_y_logits = gated_y_logits + torch.mul(current_exit, current_logits)
             final_gate_exit = torch.logical_not(past_exits)
+            sample_exit_level_map[final_gate_exit.flatten().nonzero()] = len(self.intermediate_heads)
             num_exits_per_gate.append(torch.sum(final_gate_exit))
             gated_y_logits = gated_y_logits + torch.mul(final_gate_exit, final_logits) # last gate
             things_of_interest = {
@@ -329,7 +330,7 @@ class T2T_ViT(nn.Module):
             gate_logits = torch.cat(gate_logits, dim=1)
             gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
             # addressing the class imbalance avec audace
-            weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)-1) +1
+            weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)) +1
             gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
             things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
             return gate_loss, things_of_interest

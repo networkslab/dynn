@@ -118,12 +118,6 @@ def collect_metrics(things_of_interest, gates_count, targets,
         correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
         stored_metrics['cheating_correct'] += correct_class_cheating.sum().item()
 
-
-       
-        
-        
-        
-
     return stored_per_x, stored_metrics
 
 def compute_correct_number_per_gate(number_of_gates: int,
