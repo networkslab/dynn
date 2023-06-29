@@ -271,8 +271,8 @@ class T2T_ViT(nn.Module):
                 
                 if self.direct_exit_prob_param: # g = prob_exit/prod (1-prev_g)
                     prob_exit = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
-                    cumul_previous_gates = torch.prod(1 - prob_gates[:,:-1], axis=1)[:,None] # prod (1-g)
-                    current_gate_prob = prob_exit/cumul_previous_gates
+                    cumul_previous_gates = torch.prod(1 - prob_gates, axis=1)[:,None] # prod (1-g)
+                    current_gate_prob = torch.clip(prob_exit/cumul_previous_gates, min=0, max=1)
                     prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
                     
                 else:
