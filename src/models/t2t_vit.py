@@ -158,6 +158,20 @@ class T2T_ViT(nn.Module):
         self.intermediate_heads = nn.ModuleList([
             nn.Linear(self.embed_dim, self.num_classes) if self.num_classes > 0 else nn.Identity()
             for _ in range(len(self.intermediate_head_positions))])
+    
+    def set_threshold_gates(self, gates):
+        assert len(gates) == len(self.intermediate_heads), 'Net should have as many gates as there are intermediate classifiers'
+        self.gates = gates
+
+    
+    def set_learnable_gates(self, gate_positions, direct_exit_prob_param=False):
+
+        self.gate_positions = gate_positions
+        self.direct_exit_prob_param = direct_exit_prob_param
+        self.gates = nn.ModuleList([
+                LearnableGate() for _ in range(len(self.gate_positions))])
+
+
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
@@ -247,13 +261,24 @@ class T2T_ViT(nn.Module):
             # Gates are frozen, find first exit gate
             intermediate_logits = []
             num_exits_per_gate = []
+            prob_gates = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
             gated_y_logits = torch.zeros_like(final_logits) # holds the accumulated predictions in a single tensor
             sample_exit_level_map = torch.zeros_like(targets) # holds the exit level of each prediction
             past_exits = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
             for l, intermediate_head in enumerate(self.intermediate_heads):
                 current_logits = intermediate_head(intermediate_transformer_outs[l])
                 intermediate_logits.append(current_logits)
-                current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
+                
+                if self.direct_exit_prob_param: # g = prob_exit/prod (1-prev_g)
+                    prob_exit = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
+                    cumul_previous_gates = torch.prod(1 - prob_gates[:,:-1], axis=1)[:,None] # prod (1-g)
+                    current_gate_prob = prob_exit/cumul_previous_gates
+                    prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
+                    
+                else:
+                    current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
+
+                
                 do_exit = torch.bernoulli(current_gate_prob)
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
                 current_exit_index = current_exit.flatten().nonzero()
@@ -284,7 +309,7 @@ class T2T_ViT(nn.Module):
             for l, intermediate_head in enumerate(self.intermediate_heads):
                 current_logits = intermediate_head(intermediate_transformer_outs[l])
                 intermediate_logits.append(current_logits)
-                current_gate_logits = self.gates[l](current_logits)
+                current_gate_logits = self.gates[l](current_logits)                
                 gate_logits.append(current_gate_logits)
                 ce_loss = accuracy_criterion(current_logits, targets)
                 ic_loss = (l + 1) / (len(intermediate_transformer_outs) +  1)
@@ -301,16 +326,7 @@ class T2T_ViT(nn.Module):
             things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
             return gate_loss, things_of_interest
 
-    def set_threshold_gates(self, gates):
-        assert len(gates) == len(self.intermediate_heads), 'Net should have as many gates as there are intermediate classifiers'
-        self.gates = gates
-
     
-    def set_learnable_gates(self, gate_positions):
-
-        self.gate_positions = gate_positions
-        self.gates = nn.ModuleList([
-            LearnableGate() for _ in range(len(self.gate_positions))])
 
 
 @register_model
