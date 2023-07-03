@@ -254,7 +254,7 @@ class T2T_ViT(nn.Module):
         return torch.sum(torch.cat(all_y, axis=1), axis=1),  torch.sum(torch.cat(total_inference_cost, axis=1), axis=1), intermediate_outs
 
 
-    def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase):
+    def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase, ignore_subsequent = False):
         final_head, intermediate_transformer_outs = self._forward_features(inputs)
         final_logits = self.head(final_head)
         if training_phase == TrainingPhase.CLASSIFIER:
@@ -305,7 +305,7 @@ class T2T_ViT(nn.Module):
             gate_logits = []
             intermediate_logits = []
             accuracy_criterion = nn.CrossEntropyLoss(reduction='none') # Measures accuracy of classifiers
-       
+
             gate_criterion = nn.BCEWithLogitsLoss(reduction='none')
             for l, intermediate_head in enumerate(self.intermediate_heads):
                 current_logits = intermediate_head(intermediate_transformer_outs[l])
@@ -313,7 +313,7 @@ class T2T_ViT(nn.Module):
                 current_gate_logits = self.gates[l](current_logits)                
                 gate_logits.append(current_gate_logits)
                 ce_loss = accuracy_criterion(current_logits, targets)
-                ic_loss = (l + 1) / (len(intermediate_transformer_outs) +  1)
+                ic_loss = (l + 1) / (len(intermediate_transformer_outs) + 1)
                 level_loss = ce_loss + self.CE_IC_tradeoff * ic_loss
                 level_loss = level_loss[:, None]
                 intermediate_losses.append(level_loss)
@@ -325,17 +325,41 @@ class T2T_ViT(nn.Module):
             intermediate_losses.append(final_level_loss)
             
             gate_target = torch.argmin(torch.cat(intermediate_losses, dim = 1), dim = 1) # For each sample in batch, which gate should exit
-            gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads)+1)
-            gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we dont have a gate there.
+            gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads) + 1)
             gate_logits = torch.cat(gate_logits, dim=1)
-            gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
-            # addressing the class imbalance avec audace
-            weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)) +1
-            gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
-            things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
-            return gate_loss, things_of_interest
-
-    
+            if not ignore_subsequent:
+                gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we dont have a gate there.
+                gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
+                # addressing the class imbalance avec audace
+                weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)) + 1
+                gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
+                things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+                return gate_loss, things_of_interest
+            else:
+                losses = []
+                exit_counts = []
+                for gate_idx in range(0, len(self.gate_positions)):
+                    samples_exiting_at_gate_idx = (gate_target == gate_idx).nonzero().flatten()
+                    exit_counts.append(len(samples_exiting_at_gate_idx))
+                    if len(samples_exiting_at_gate_idx) == 0:
+                        continue
+                    one_hot_exiting_at_gate = gate_target_one_hot[samples_exiting_at_gate_idx]
+                    one_hot_exiting_at_gate = one_hot_exiting_at_gate[:, :gate_idx + 1] # chop all gates after the relevant gate
+                    gate_logits_at_gate = gate_logits[samples_exiting_at_gate_idx, :(gate_idx + 1)]
+                    losses.append(gate_criterion(gate_logits_at_gate, one_hot_exiting_at_gate.double()))
+                num_ones = len(targets)
+                num_zeroes = 0
+                for idx, exit_count in enumerate(exit_counts):
+                    num_zeroes += idx * exit_count
+                zero_to_one_ratio = num_zeroes / num_ones
+                weighted_losses = []
+                for idx, loss in enumerate(losses):
+                    multiplier = torch.ones_like(loss)
+                    multiplier[:, -1] = zero_to_one_ratio
+                    weighted_losses.append((loss * multiplier).flatten())
+                gate_loss = torch.mean(torch.cat(weighted_losses))
+                things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+                return gate_loss, things_of_interest
 
 
 @register_model
