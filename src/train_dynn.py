@@ -23,7 +23,7 @@ parser.add_argument('--dataset', type=str, default='cifar10',
                     help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64,
                     help='batch size')
-parser.add_argument('--ce_ic_tradeoff', default=0, type=float, help='cost inference and cross entropy loss tradeoff')
+parser.add_argument('--ce_ic_tradeoff', default=0.001, type=float, help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
 parser.add_argument('--warmup_batch_count', default=50, type=int, help='number of batches for warmup where all classifier are trained')
@@ -31,6 +31,7 @@ parser.add_argument('--bilevel_batch_count', default=200, type=int, help='number
 parser.add_argument('--barely_train', action='store_true', help='not a real run')
 parser.add_argument('--resume', '-r', action='store_true',
                     help='resume from checkpoint')
+parser.add_argument('--model', type=str,default='learn_gate_direct') # learn_gate, learn_gate_direct
 parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
                     help='Drop path rate (default: None)')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
@@ -49,7 +50,7 @@ if args.barely_train:
 
 use_mlflow = args.use_mlflow
 if use_mlflow:
-    name = "_".join([str(a) for a in [args.dataset, args.batch]])
+    name = "_".join([str(a) for a in [args.model, args.ce_ic_tradeoff]])
     cfg = vars(args)
     setup_mlflow(name, cfg)
 
@@ -81,7 +82,9 @@ net = create_model(
 
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
-net.set_learnable_gates(transformer_layer_gating)
+if args.model == 'learn_gate_direct':
+    direct_exit_prob_param =True
+net.set_learnable_gates(transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param)
 
 net = net.to(device)
 

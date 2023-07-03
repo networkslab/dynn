@@ -77,7 +77,6 @@ def collect_metrics(things_of_interest, gates_count, targets,
                 stored_metrics['gated_correct_count_per_gate'][gate_idx] += pred_tuple[0]
                 stored_metrics['gated_pred_count_per_gate'][gate_idx] += pred_tuple[1]
 
-
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
         stored_metrics['final_head_correct_all'] += pred_final_head.eq(targets).sum().item()
@@ -118,12 +117,6 @@ def collect_metrics(things_of_interest, gates_count, targets,
 
         correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
         stored_metrics['cheating_correct'] += correct_class_cheating.sum().item()
-
-
-       
-        
-        
-        
 
     return stored_per_x, stored_metrics
 
