@@ -132,7 +132,6 @@ class T2T_ViT(nn.Module):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches + 1, d_hid=embed_dim), requires_grad=False)
         self.pos_drop = nn.Dropout(p=drop_rate)
-        self.cost_perf_tradeoff = 0
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]  # stochastic depth decay rule
         self.blocks = nn.ModuleList([
             Block(
@@ -147,6 +146,8 @@ class T2T_ViT(nn.Module):
         trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
 
+    def set_CE_IC_tradeoff(self, CE_IC_tradeoff):
+        self.CE_IC_tradeoff = CE_IC_tradeoff
     '''
     sets intermediate classifiers that are hooked after inner transformer blocks
     '''
@@ -287,7 +288,7 @@ class T2T_ViT(nn.Module):
                 gate_logits.append(current_gate_logits)
                 ce_loss = accuracy_criterion(current_logits, targets)
                 ic_loss = (l + 1) / (len(intermediate_transformer_outs) +  1)
-                level_loss = ce_loss + self.cost_perf_tradeoff * ic_loss
+                level_loss = ce_loss + self.CE_IC_tradeoff * ic_loss
                 level_loss = level_loss[:, None]
                 intermediate_losses.append(level_loss)
             gate_target = torch.argmin(torch.cat(intermediate_losses, dim = 1), dim = 1) # For each sample in batch, which gate should exit
