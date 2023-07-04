@@ -12,6 +12,7 @@ from collect_metric_iter import collect_metrics, get_empty_storage_metrics
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root
 from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow
+from models.custom_modules.gate import GateType
 from utils import progress_bar
 from models.t2t_vit import TrainingPhase
 
@@ -32,6 +33,7 @@ parser.add_argument('--barely_train', action='store_true', help='not a real run'
 parser.add_argument('--resume', '-r', action='store_true',
                     help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct') # learn_gate, learn_gate_direct
+parser.add_argument('--gate', type=GateType, default=GateType.UNCERTAINTY, choices=GateType) # unc, code, code_and_unc
 parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
                     help='Drop path rate (default: None)')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
@@ -51,7 +53,7 @@ if args.barely_train:
 ignore_subsequent = bool(args.ignore_sub)
 use_mlflow = args.use_mlflow
 if use_mlflow:
-    name = "_".join([str(a) for a in [args.model, args.ce_ic_tradeoff]])
+    name = "_".join([str(a) for a in [args.model, args.ce_ic_tradeoff,  args.gate]])
     if ignore_subsequent:
         name = f"{name}_ignore_sub"
     cfg = vars(args)
@@ -87,7 +89,7 @@ net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
 if args.model == 'learn_gate_direct':
     direct_exit_prob_param =True
-net.set_learnable_gates(transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param)
+net.set_learnable_gates(transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param, gate_type=args.gate)
 
 net = net.to(device)
 

@@ -1,11 +1,13 @@
+from typing import Tuple
 import torch
 from torch import Tensor
-from models.custom_modules.gate import Gate
+from models.custom_modules.gate import Gate, GateType
 from uncertainty_metrics import compute_detached_uncertainty_metrics
 
-class LearnableGate(Gate):
+class LearnableUncGate(Gate):
     def __init__(self):
         super(Gate, self).__init__()
+        self.gate_type = GateType.UNCERTAINTY
         self.dim = 4
         self.linear = torch.nn.Linear(self.dim, 1)
 
@@ -18,7 +20,7 @@ class LearnableGate(Gate):
         uncertainty_metrics = torch.cat((p_maxes, entropies, margins, entropy_pows), dim = 1)
         return self.linear(uncertainty_metrics.to(logits.device))
 
-    def inference_forward(self, input: Tensor, previous_mask: Tensor) -> (Tensor, Tensor):
+    def inference_forward(self, input: Tensor, previous_mask: Tensor) -> Tuple[Tensor, Tensor]:
         """Returns 2 equal-size tensors, the prediction tensor and a tensor containing the indices of predictions
         :param input: The softmax logits of the classifier
         """
