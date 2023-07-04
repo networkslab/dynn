@@ -223,15 +223,15 @@ class T2T_ViT(nn.Module):
     # this is only to be used for training
     def forward_brute_force(self, inputs, normalize = False):
         x, intermediate_transformer_outs = self._forward_features(inputs)
-        intermediate_outs = []
+        intermediate_logits = []
         all_y = []
         total_inference_cost = []
         prob_gates = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
         for l, intermediate_head in enumerate(self.intermediate_heads):
-            intermediate_logits = intermediate_head(intermediate_transformer_outs[l])
+            intermediate_logit = intermediate_head(intermediate_transformer_outs[l])
             
-            intermediate_outs.append(intermediate_logits)
-            current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
+            intermediate_logits.append(intermediate_logit)
+            current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](intermediate_logit))
 
             prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
             cumul_previous_gates = torch.prod(1 - prob_gates[:,:-1], axis=1) # check this 
@@ -240,7 +240,7 @@ class T2T_ViT(nn.Module):
             cumul_previous_gates = cumul_previous_gates[:, None]
 
 
-            y_prob_intermediate = torch.nn.functional.softmax(intermediate_logits, dim=1)
+            y_prob_intermediate = torch.nn.functional.softmax(intermediate_logit, dim=1)
         
             gate_coef = cumul_previous_gates * current_gate_prob
             # log_metrics({gate_coef},
@@ -251,7 +251,7 @@ class T2T_ViT(nn.Module):
             cost_of_gate = self.cost_per_gate[l] * gate_coef
             total_inference_cost.append(cost_of_gate)
         
-        return torch.sum(torch.cat(all_y, axis=1), axis=1),  torch.sum(torch.cat(total_inference_cost, axis=1), axis=1), intermediate_outs
+        return torch.sum(torch.cat(all_y, axis=1), axis=1),  torch.sum(torch.cat(total_inference_cost, axis=1), axis=1), intermediate_logits
 
 
     def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase, ignore_subsequent = False):
@@ -270,13 +270,13 @@ class T2T_ViT(nn.Module):
                 intermediate_logits.append(current_logits)
                 
                 if self.direct_exit_prob_param: # g = prob_exit/prod (1-prev_g)
-                    prob_exit = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
+                    prob_exit = torch.nn.functional.sigmoid(self.gates[l](current_logits))
                     cumul_previous_gates = torch.prod(1 - prob_gates, axis=1)[:,None] # prod (1-g)
                     current_gate_prob = torch.clip(prob_exit/cumul_previous_gates, min=0, max=1)
                     prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
                     
                 else:
-                    current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](intermediate_transformer_outs[l]))
+                    current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
 
                 
                 do_exit = torch.bernoulli(current_gate_prob)
