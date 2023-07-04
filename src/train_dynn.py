@@ -33,7 +33,7 @@ parser.add_argument('--barely_train', action='store_true', help='not a real run'
 parser.add_argument('--resume', '-r', action='store_true',
                     help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct') # learn_gate, learn_gate_direct
-parser.add_argument('--gate', type=GateType, default=GateType.UNCERTAINTY, choices=GateType) # unc, code, code_and_unc
+parser.add_argument('--gate', type=GateType, default=GateType.CODE, choices=GateType) # unc, code, code_and_unc
 parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
                     help='Drop path rate (default: None)')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
@@ -89,7 +89,7 @@ net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
 
 direct_exit_prob_param = args.model == 'learn_gate_direct'
-net.set_learnable_gates(transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param, gate_type= args.gate)
+net.set_learnable_gates(device, transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param, gate_type= args.gate)
 
 net = net.to(device)
 
