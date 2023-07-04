@@ -13,7 +13,7 @@ from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloade
 from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow
 from utils import progress_bar
-from models.t2t_vit import TrainingPhase
+from models.t2t_vit import TrainingPhase, GateTrainingScheme
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
@@ -38,7 +38,11 @@ parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--ckp-path', type=str, default='checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
                     help='path to checkpoint transfer learning model')
-parser.add_argument('--ignore_sub', default=False, help='Whether to ignore subsequent gates after exit')
+parser.add_argument('--gate_training_scheme',
+                    default='DEFAULT',
+                    help='Gate training scheme (how to handle gates after first exit)',
+                    choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT']
+                    )
 
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
@@ -48,12 +52,10 @@ transformer_layer_gating = [g for g in range(args.G)]
 
 if args.barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
-ignore_subsequent = bool(args.ignore_sub)
+gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
 use_mlflow = args.use_mlflow
 if use_mlflow:
-    name = "_".join([str(a) for a in [args.model, args.ce_ic_tradeoff]])
-    if ignore_subsequent:
-        name = f"{name}_ignore_sub"
+    name = "_".join([str(a) for a in [args.model, args.ce_ic_tradeoff, args.gate_training_scheme]])
     cfg = vars(args)
     setup_mlflow(name, cfg)
 
@@ -85,6 +87,7 @@ net = create_model(
 
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
+net.set_gate_training_scheme(gate_training_scheme)
 if args.model == 'learn_gate_direct':
     direct_exit_prob_param =True
 net.set_learnable_gates(transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param)
@@ -152,8 +155,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
         if training_phase == TrainingPhase.WARMUP:
             loss, things_of_interest = get_loss(inputs, targets, optimizer, net)
         else:
-            loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase,
-                                                          ignore_subsequent = ignore_subsequent)
+            loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
         
         total += targets.size(0)
         loss.backward()
