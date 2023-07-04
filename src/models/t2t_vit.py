@@ -173,19 +173,20 @@ class T2T_ViT(nn.Module):
         self.direct_exit_prob_param = direct_exit_prob_param
         self.gate_type = gate_type
         if gate_type == GateType.UNCERTAINTY:
-            Gate = LearnableUncGate
+            self.gates = nn.ModuleList([
+                LearnableUncGate() for _ in range(len(self.gate_positions))])
         elif gate_type == GateType.CODE:
-            Gate = LearnableCodeGate
+            self.gates = nn.ModuleList([
+                LearnableCodeGate() for _ in range(len(self.gate_positions))])
         # elif gate_type == GateType.UNCERTAINTY:
         #     Gate = LearnableUncGate
-        self.gates = nn.ModuleList([
-                Gate() for _ in range(len(self.gate_positions))])
+        
 
-    def get_gate_prediction(self, l, intermediate_logits, intermediate_codes):
+    def get_gate_prediction(self, l, current_logits, intermediate_codes):
         if self.gate_type == GateType.UNCERTAINTY:
-            return self.gates[l](intermediate_logits)
+            return self.gates[l](current_logits)
         elif self.gate_type == GateType.CODE:
-            return self.gates[l](intermediate_codes)
+            return self.gates[l](intermediate_codes[l])
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
