@@ -38,6 +38,7 @@ parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--ckp-path', type=str, default='checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',
                     help='path to checkpoint transfer learning model')
+parser.add_argument('--ignore_sub', default=False, help='Whether to ignore subsequent gates after exit')
 
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
@@ -47,10 +48,12 @@ transformer_layer_gating = [g for g in range(args.G)]
 
 if args.barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
-
+ignore_subsequent = bool(args.ignore_sub)
 use_mlflow = args.use_mlflow
 if use_mlflow:
     name = "_".join([str(a) for a in [args.model, args.ce_ic_tradeoff]])
+    if ignore_subsequent:
+        name = f"{name}_ignore_sub"
     cfg = vars(args)
     setup_mlflow(name, cfg)
 
@@ -149,7 +152,8 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
         if training_phase == TrainingPhase.WARMUP:
             loss, things_of_interest = get_loss(inputs, targets, optimizer, net)
         else:
-            loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
+            loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase,
+                                                          ignore_subsequent = ignore_subsequent)
         
         total += targets.size(0)
         loss.backward()
