@@ -39,9 +39,10 @@ def compute_gated_accuracy(stored_metrics, gate_idx):
     if pred_count == 0:
         return 0
     return correct_count / pred_count * 100
+
 def setup_mlflow(run_name: str, cfg):
     print(run_name)
-    project = 'DyNN'
+    project = 'DyNN_rerun'
     mlruns_path = get_abs_path(["mlruns"])
     mlflow.set_tracking_uri(mlruns_path)
     mlflow.set_experiment(project)

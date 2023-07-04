@@ -88,8 +88,8 @@ net = create_model(
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
 net.set_gate_training_scheme(gate_training_scheme)
-if args.model == 'learn_gate_direct':
-    direct_exit_prob_param =True
+
+direct_exit_prob_param = args.model == 'learn_gate_direct'
 net.set_learnable_gates(transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param)
 
 net = net.to(device)
