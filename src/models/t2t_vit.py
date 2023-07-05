@@ -271,8 +271,8 @@ class T2T_ViT(nn.Module):
 
 
     def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase):
-        final_head, intermediate_transformer_outs = self._forward_features(inputs)
-        final_logits = self.head(final_head)
+        final_outs, intermediate_transformer_outs = self._forward_features(inputs)
+        final_logits = self.head(final_outs)
         if training_phase == TrainingPhase.CLASSIFIER:
             # Gates are frozen, find first exit gate
             intermediate_logits = []
@@ -290,11 +290,8 @@ class T2T_ViT(nn.Module):
                     cumul_previous_gates = torch.prod(1 - prob_gates, axis=1)[:,None] # prod (1-g)
                     current_gate_prob = torch.clip(prob_exit/cumul_previous_gates, min=0, max=1)
                     prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
-                    
                 else:
                     current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
-
-                
                 do_exit = torch.bernoulli(current_gate_prob)
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
                 current_exit_index = current_exit.flatten().nonzero()
@@ -347,6 +344,7 @@ class T2T_ViT(nn.Module):
                 gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we dont have a gate there.
                 gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
                 # addressing the class imbalance avec audace
+                # TODO This needs to be fixed to follow the same approach as what we do in the other if branches
                 weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)) + 1
                 gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
                 things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
@@ -376,7 +374,7 @@ class T2T_ViT(nn.Module):
                 gate_loss = torch.mean(torch.cat(weighted_losses))
                 things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
                 return gate_loss, things_of_interest
-            else: # Force subsequent to exit
+            elif self.gate_training_scheme == GateTrainingScheme.EXIT_SUBSEQUENT: # Force subsequent to exit
                 gate_target_one_hot = gate_target_one_hot[:,:-1] # remove exit since there is not associated gate
                 hot_encode_subsequent = gate_target_one_hot.cumsum(dim=1)
                 gate_loss = gate_criterion(gate_logits.flatten(), hot_encode_subsequent.double().flatten())
