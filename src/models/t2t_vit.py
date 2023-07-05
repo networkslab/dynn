@@ -24,6 +24,18 @@ class TrainingPhase(Enum):
     GATE = 2
     WARMUP=3
 
+class GateTrainingScheme(Enum):
+    """
+    The training scheme when training gates.
+    Default means training the optimal gate to exit while all others are forced not to.
+    Ignore subsequent means training the optimal gate to exit, the previous gates to not exit and we ignore later (deeper) gates
+    Exit subsequent means training the optimal gate to exit, all subsequent gates to exit as well while earlier gates are trained not to exit.
+    """
+    DEFAULT = 1
+    IGNORE_SUBSEQUENT = 2
+    EXIT_SUBSEQUENT = 3
+
+
 
 def _cfg(url='', **kwargs):
     return {
@@ -148,6 +160,10 @@ class T2T_ViT(nn.Module):
 
     def set_CE_IC_tradeoff(self, CE_IC_tradeoff):
         self.CE_IC_tradeoff = CE_IC_tradeoff
+
+    def set_gate_training_scheme(self, gate_training_scheme: GateTrainingScheme):
+        self.gate_training_scheme = gate_training_scheme
+
     '''
     sets intermediate classifiers that are hooked after inner transformer blocks
     '''
@@ -254,9 +270,9 @@ class T2T_ViT(nn.Module):
         return torch.sum(torch.cat(all_y, axis=1), axis=1),  torch.sum(torch.cat(total_inference_cost, axis=1), axis=1), intermediate_logits
 
 
-    def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase, ignore_subsequent = False):
-        final_head, intermediate_transformer_outs = self._forward_features(inputs)
-        final_logits = self.head(final_head)
+    def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase):
+        final_outs, intermediate_transformer_outs = self._forward_features(inputs)
+        final_logits = self.head(final_outs)
         if training_phase == TrainingPhase.CLASSIFIER:
             # Gates are frozen, find first exit gate
             intermediate_logits = []
@@ -274,11 +290,8 @@ class T2T_ViT(nn.Module):
                     cumul_previous_gates = torch.prod(1 - prob_gates, axis=1)[:,None] # prod (1-g)
                     current_gate_prob = torch.clip(prob_exit/cumul_previous_gates, min=0, max=1)
                     prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
-                    
                 else:
                     current_gate_prob = torch.nn.functional.sigmoid(self.gates[l](current_logits))
-
-                
                 do_exit = torch.bernoulli(current_gate_prob)
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
                 current_exit_index = current_exit.flatten().nonzero()
@@ -327,15 +340,16 @@ class T2T_ViT(nn.Module):
             gate_target = torch.argmin(torch.cat(intermediate_losses, dim = 1), dim = 1) # For each sample in batch, which gate should exit
             gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads) + 1)
             gate_logits = torch.cat(gate_logits, dim=1)
-            if not ignore_subsequent:
+            if self.gate_training_scheme == GateTrainingScheme.DEFAULT:
                 gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we dont have a gate there.
                 gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
                 # addressing the class imbalance avec audace
+                # TODO This needs to be fixed to follow the same approach as what we do in the other if branches
                 weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)) + 1
                 gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
                 things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
                 return gate_loss, things_of_interest
-            else:
+            elif self.gate_training_scheme == GateTrainingScheme.IGNORE_SUBSEQUENT:
                 losses = []
                 exit_counts = []
                 for gate_idx in range(0, len(self.gate_positions)):
@@ -360,7 +374,20 @@ class T2T_ViT(nn.Module):
                 gate_loss = torch.mean(torch.cat(weighted_losses))
                 things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
                 return gate_loss, things_of_interest
-
+            elif self.gate_training_scheme == GateTrainingScheme.EXIT_SUBSEQUENT: # Force subsequent to exit
+                gate_target_one_hot = gate_target_one_hot[:,:-1] # remove exit since there is not associated gate
+                hot_encode_subsequent = gate_target_one_hot.cumsum(dim=1)
+                gate_loss = gate_criterion(gate_logits.flatten(), hot_encode_subsequent.double().flatten())
+                # addressing the class imbalance avec classe
+                num_ones = torch.sum(hot_encode_subsequent)
+                num_zeros = (torch.prod(torch.Tensor(list(hot_encode_subsequent.shape)))) - num_ones
+                zero_to_one_ratio = num_zeros / num_ones
+                ones_loss_multiplier = hot_encode_subsequent.double().flatten() * zero_to_one_ratio # balances ones
+                zeros_loss_multiplier = torch.logical_not(hot_encode_subsequent).double().flatten()
+                multiplier = ones_loss_multiplier + zeros_loss_multiplier
+                gate_loss = torch.mean(gate_loss * multiplier)
+                things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+                return gate_loss, things_of_interest
 
 @register_model
 def t2t_vit_7(pretrained=False, **kwargs): # adopt performer for tokens to token
