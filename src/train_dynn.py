@@ -120,7 +120,7 @@ def switch_training_phase(current_phase):
     elif current_phase == TrainingPhase.CLASSIFIER:
         return TrainingPhase.GATE
     elif current_phase == TrainingPhase.WARMUP:
-        return TrainingPhase.CLASSIFIER
+        return TrainingPhase.GATE
 
 optimizer = optim.SGD(parameters, lr=args.lr,
                       momentum=0.9, weight_decay=args.wd)
@@ -129,7 +129,9 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.m
 def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmup_periods = 0):
     print('\nEpoch: %d' % epoch)
     net.train()
-    epoch_loss = 0
+    
+    gate_loss = 0
+    classifier_loss = 0
     correct = 0
     total = 0
     total_classifier = 0
@@ -142,7 +144,8 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
             training_phase = TrainingPhase.WARMUP
         elif classifier_warmup_periods > 0 and batch_idx == classifier_warmup_periods: # only hit when we switch from warmup to normal
             # clean slate, we set every counter to zero
-            epoch_loss = 0
+            gate_loss = 0
+            classifier_loss = 0
             correct = 0
             total = 0
             total_classifier = 0
@@ -160,7 +163,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
         total += targets.size(0)
         loss.backward()
         optimizer.step()
-        epoch_loss += loss.item()
+        
 
         stored_per_x, stored_metrics = collect_metrics(things_of_interest, args.G, targets, device,
                                                        stored_per_x, stored_metrics, training_phase)
@@ -171,11 +174,11 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
             total_classifier += targets.size(0)
             # compute metrics to display
             gated_acc = 100. * correct / total_classifier
-
-            loss = epoch_loss / (batch_idx + 1)
+            classifier_loss += loss.item()
+            loss = classifier_loss /  total_classifier
             progress_bar(
                 batch_idx, len(train_loader),
-                'Loss: %.3f | Classifier Acc: %.3f%% (%d/%d)' %
+                'Classifier Loss: %.3f | Classifier Acc: %.3f%% (%d/%d)' %
                 (loss, gated_acc, correct, total_classifier))
 
             if use_mlflow:
@@ -192,7 +195,8 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
                                    step=batch_idx + (epoch * len(train_loader)))
         elif training_phase == TrainingPhase.WARMUP:
             total_classifier+= targets.size(0)
-            loss = epoch_loss / (batch_idx + 1)
+            classifier_loss += loss.item()
+            loss = classifier_loss /  total_classifier
             progress_bar(batch_idx, len(train_loader),'Loss: %.3f | Warmup  time' %(loss))
 
             if use_mlflow:
@@ -210,7 +214,15 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
 
         elif training_phase == TrainingPhase.GATE:
             total_gate += targets.size(0)
-            progress_bar(batch_idx, len(train_loader), 'Loss: %.3f ' % (loss))
+            gate_loss += loss.item()
+            loss = gate_loss / total_gate
+            progress_bar(batch_idx, len(train_loader), 'Gate Loss: %.3f ' % (loss))
+            exit_count_optimal_gate_perc = {k: v / total_gate * 100 for k, v in stored_metrics['exit_count_optimal_gate'].items()}
+            log_dict ={'train/gate_loss':loss}
+            for g in range(args.G):
+                log_dict['train' + '/optimal_percent_exit' + str(g)] = exit_count_optimal_gate_perc[g]
+            mlflow.log_metrics(log_dict,
+                               step=batch_idx + (epoch * len(train_loader)))
         if args.barely_train:
             if batch_idx > 50:
                 print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
