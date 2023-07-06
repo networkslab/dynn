@@ -211,6 +211,12 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
         elif training_phase == TrainingPhase.GATE:
             total_gate += targets.size(0)
             progress_bar(batch_idx, len(train_loader), 'Loss: %.3f ' % (loss))
+            exit_count_optimal_gate_perc = {k: v / total_gate * 100 for k, v in stored_metrics['exit_count_optimal_gate'].items()}
+            log_dict ={}
+            for g in range(args.G):
+                log_dict['train' + '/optimal_percent_exit' + str(g)] = exit_count_optimal_gate_perc[g]
+            mlflow.log_metrics(log_dict,
+                               step=batch_idx + (epoch * len(train_loader)))
         if args.barely_train:
             if batch_idx > 50:
                 print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')

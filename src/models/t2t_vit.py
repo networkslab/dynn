@@ -318,7 +318,7 @@ class T2T_ViT(nn.Module):
             gate_logits = []
             intermediate_logits = []
             accuracy_criterion = nn.CrossEntropyLoss(reduction='none') # Measures accuracy of classifiers
-
+            exit_count_per_gate = dict.fromkeys(range(len(self.intermediate_heads)), 0) # counts number of times a gate was selected as the optimal gate for exiting
             gate_criterion = nn.BCEWithLogitsLoss(reduction='none')
             for l, intermediate_head in enumerate(self.intermediate_heads):
                 current_logits = intermediate_head(intermediate_transformer_outs[l])
@@ -338,6 +338,10 @@ class T2T_ViT(nn.Module):
             intermediate_losses.append(final_level_loss)
             
             gate_target = torch.argmin(torch.cat(intermediate_losses, dim = 1), dim = 1) # For each sample in batch, which gate should exit
+            for gate_level in exit_count_per_gate.keys():
+                count_exit_at_level = torch.sum(gate_target == gate_level).item()
+                exit_count_per_gate[gate_level] += count_exit_at_level
+            things_of_interest = {'exit_count_optimal_gate': exit_count_per_gate}
             gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads) + 1)
             gate_logits = torch.cat(gate_logits, dim=1)
             if self.gate_training_scheme == GateTrainingScheme.DEFAULT:
@@ -347,7 +351,7 @@ class T2T_ViT(nn.Module):
                 # TODO This needs to be fixed to follow the same approach as what we do in the other if branches
                 weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)) + 1
                 gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
-                things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+                things_of_interest = things_of_interest | {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
                 return gate_loss, things_of_interest
             elif self.gate_training_scheme == GateTrainingScheme.IGNORE_SUBSEQUENT:
                 losses = []
@@ -372,7 +376,7 @@ class T2T_ViT(nn.Module):
                     multiplier[:, -1] = zero_to_one_ratio
                     weighted_losses.append((loss * multiplier).flatten())
                 gate_loss = torch.mean(torch.cat(weighted_losses))
-                things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+                things_of_interest = things_of_interest | {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
                 return gate_loss, things_of_interest
             elif self.gate_training_scheme == GateTrainingScheme.EXIT_SUBSEQUENT: # Force subsequent to exit
                 gate_target_one_hot = gate_target_one_hot[:,:-1] # remove exit since there is not associated gate
@@ -386,7 +390,7 @@ class T2T_ViT(nn.Module):
                 zeros_loss_multiplier = torch.logical_not(hot_encode_subsequent).double().flatten()
                 multiplier = ones_loss_multiplier + zeros_loss_multiplier
                 gate_loss = torch.mean(gate_loss * multiplier)
-                things_of_interest = {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
+                things_of_interest = things_of_interest | {'intermediate_logits':intermediate_logits, 'final_logits':final_logits}
                 return gate_loss, things_of_interest
 
 @register_model
