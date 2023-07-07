@@ -222,7 +222,8 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
             loss = gate_loss / total_gate
             progress_bar(batch_idx, len(train_loader), 'Gate Loss: %.3f ' % (loss))
             exit_count_optimal_gate_perc = {k: v / total_gate * 100 for k, v in stored_metrics['exit_count_optimal_gate'].items()}
-            log_dict ={'train/gate_loss':loss}
+            gate_exit_acc = stored_metrics['correct_exit_count'] / total_gate * 100
+            log_dict ={'train/gate_loss':loss, 'train/gate_exit_acc': gate_exit_acc}
             for g in range(args.G):
                 log_dict['train' + '/optimal_percent_exit' + str(g)] = exit_count_optimal_gate_perc[g]
             mlflow.log_metrics(log_dict,
