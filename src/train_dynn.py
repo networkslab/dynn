@@ -46,12 +46,14 @@ parser.add_argument('--gate_training_scheme',
                     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT']
                     )
 
+parser.add_argument('--proj_dim', default=32, help='Target dimension of random projection for ReLU codes')
+
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
 
 transformer_layer_gating = [g for g in range(args.G)]
 
-
+proj_dim = int(args.proj_dim)
 if args.barely_train:
     print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
 gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
@@ -92,7 +94,7 @@ net.set_intermediate_heads(transformer_layer_gating)
 net.set_gate_training_scheme(gate_training_scheme)
 
 direct_exit_prob_param = args.model == 'learn_gate_direct'
-net.set_learnable_gates(device, transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param, gate_type= args.gate)
+net.set_learnable_gates(device, transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param, gate_type= args.gate, proj_dim=proj_dim)
 
 net = net.to(device)
 
