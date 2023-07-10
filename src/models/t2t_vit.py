@@ -21,6 +21,7 @@ from .transformer_block import Block, get_sinusoid_encoding
 from .custom_modules.custom_GELU import CustomGELU
 from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
 from .custom_modules.learnable_code_gate import LearnableCodeGate
+from sklearn.metrics import accuracy_score
 from enum import Enum
 class TrainingPhase(Enum):
     CLASSIFIER = 1
@@ -367,30 +368,30 @@ class T2T_ViT(nn.Module):
             gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads) + 1)
             gate_logits = torch.cat(gate_logits, dim=1)
             if self.gate_training_scheme == GateTrainingScheme.DEFAULT:
-                gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we dont have a gate there.
+                gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we don't have a gate there.
                 gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
                 # addressing the class imbalance avec audace
                 # TODO This needs to be fixed to follow the same approach as what we do in the other if branches
                 weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)) + 1
                 gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
                 # Compute accuracy of exit
-                actual_exit = torch.argmax(torch.nn.functional.softmax(gate_logits, dim=1), dim=1)
-                correct_exit_count += torch.sum(actual_exit == gate_target).item()
+                actual_exit_binary = torch.nn.functional.sigmoid(gate_logits) >= 0.5
+                correct_exit_count += accuracy_score(actual_exit_binary.flatten().cpu(), gate_target_one_hot.double().flatten().cpu(), normalize=False)
                 things_of_interest = things_of_interest | {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'correct_exit_count': correct_exit_count}
                 return gate_loss, things_of_interest
             elif self.gate_training_scheme == GateTrainingScheme.IGNORE_SUBSEQUENT:
                 losses = []
                 exit_counts = []
                 for gate_idx in range(0, len(self.gate_positions)):
-                    samples_exiting_at_gate_idx = (gate_target == gate_idx).nonzero().flatten()
-                    exit_counts.append(len(samples_exiting_at_gate_idx))
-                    if len(samples_exiting_at_gate_idx) == 0:
+                    samples_idx_should_exit_at_gate = (gate_target == gate_idx).nonzero().flatten()
+                    exit_counts.append(len(samples_idx_should_exit_at_gate))
+                    if len(samples_idx_should_exit_at_gate) == 0:
                         continue
-                    one_hot_exiting_at_gate = gate_target_one_hot[samples_exiting_at_gate_idx]
+                    one_hot_exiting_at_gate = gate_target_one_hot[samples_idx_should_exit_at_gate]
                     one_hot_exiting_at_gate = one_hot_exiting_at_gate[:, :gate_idx + 1] # chop all gates after the relevant gate
-                    gate_logits_at_gate = gate_logits[samples_exiting_at_gate_idx, :(gate_idx + 1)]
-                    actual_exits = torch.argmax(torch.nn.functional.softmax(gate_logits_at_gate, dim = 1), dim=1)
-                    correct_exit_count += torch.sum(actual_exits == gate_idx).item()
+                    gate_logits_at_gate = gate_logits[samples_idx_should_exit_at_gate, :(gate_idx + 1)]
+                    actual_exit_binary = torch.nn.functional.sigmoid(gate_logits_at_gate) >= 0.5
+                    correct_exit_count += accuracy_score(actual_exit_binary.flatten().cpu(), one_hot_exiting_at_gate.double().flatten().cpu(), normalize=False)
                     losses.append(gate_criterion(gate_logits_at_gate, one_hot_exiting_at_gate.double()))
                 num_ones = len(targets)
                 num_zeroes = 0
@@ -417,10 +418,10 @@ class T2T_ViT(nn.Module):
                 zeros_loss_multiplier = torch.logical_not(hot_encode_subsequent).double().flatten()
                 multiplier = ones_loss_multiplier + zeros_loss_multiplier
                 # compute gate accuracies
-                actual_exits = torch.argmax(torch.nn.functional.softmax(gate_logits, dim = 1), dim=1)
-                correct_exit_count += torch.sum(actual_exits >= gate_target).item() # count as correct if we exit at the best gate or subsequently.
+                actual_exits_binary = torch.nn.functional.sigmoid(gate_logits) >= 0.5
+                correct_exit_count += accuracy_score(actual_exits_binary.flatten().cpu(), hot_encode_subsequent.double().flatten().cpu(), normalize=False)
                 gate_loss = torch.mean(gate_loss * multiplier)
-                things_of_interest = things_of_interest | {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'correct_exit_count': correct_exit_count}
+                things_of_interest = things_of_interest | {'intermediate_logits': intermediate_logits, 'final_logits':final_logits, 'correct_exit_count': correct_exit_count}
                 return gate_loss, things_of_interest
 
 @register_model
