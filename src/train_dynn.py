@@ -202,7 +202,9 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
             classifier_loss += loss.item()
             loss = classifier_loss /  total_classifier
             progress_bar(batch_idx, len(train_loader),'Loss: %.3f | Warmup  time' %(loss))
-
+            # for g in range(args.G):
+            #     stored_metrics['correct_exit_count'][g] / total_classifier 
+            #     log_dict['train' + 'hamming' + str(g)] = exit_count_optimal_gate_perc[g]
             if use_mlflow:
                 log_dict = log_metrics_mlflow(
                     'train',

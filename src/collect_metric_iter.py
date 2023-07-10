@@ -76,7 +76,15 @@ def collect_metrics(things_of_interest, gates_count, targets,
             for gate_idx, pred_tuple in correct_number_per_gate_batch.items():
                 stored_metrics['gated_correct_count_per_gate'][gate_idx] += pred_tuple[0]
                 stored_metrics['gated_pred_count_per_gate'][gate_idx] += pred_tuple[1]
-
+        if training_phase == TrainingPhase.WARMUP:
+            
+            
+            
+            for g in range(gates_count):
+                stored_metrics['hamming_incinc_per_gate'][g] +=things_of_interest['inc_inc_H_list'][g]
+                stored_metrics['hamming_corcor_per_gate'][g] +=things_of_interest['c_c_H_list'][g]
+                stored_metrics['hamming_corinc_per_gate'][g] +=things_of_interest['c_inc_H_list'][g]
+          
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
         stored_metrics['final_head_correct_all'] += pred_final_head.eq(targets).sum().item()
@@ -213,6 +221,9 @@ def get_empty_storage_metrics(num_gates):
         'total_cost': 0,
         'cheating_correct': 0,
         'num_per_gate': [0 for _ in range(num_gates)],
+        'hamming_incinc_per_gate': [0 for _ in range(num_gates)],
+        'hamming_corcor_per_gate': [0 for _ in range(num_gates)],
+        'hamming_corinc_per_gate': [0 for _ in range(num_gates)],
         'cost_per_gate': [0 for _ in range(num_gates)],
         'ece_per_gate': [0 for _ in range(num_gates)],
         'correct_per_gate': [0 for _ in range(num_gates)],
