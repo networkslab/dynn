@@ -14,8 +14,10 @@ import torch.backends.cudnn as cudnn
 import torch.optim as optim
 from timm.models import *
 from timm.models import create_model
+from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
 
-from data_loading.data_loader_helper import get_cifar_10_dataloaders
+
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_abs_path
 from utils import load_for_transfer_learning
 from utils import progress_bar
 from log_helper import setup_mlflow
@@ -49,8 +51,8 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
-train_loader, test_loader = get_cifar_10_dataloaders(train_batch_size=args.batch)
-NUM_CLASSES = 10
+train_loader, test_loader = get_cifar_100_dataloaders(train_batch_size=args.batch)
+NUM_CLASSES = 100
 MODEL = 't2t_vit_7'
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
@@ -90,7 +92,7 @@ optimizer = optim.SGD(parameters, lr=args.lr,
                       momentum=0.9, weight_decay=args.wd)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
-criterion = nn.CrossEntropyLoss()
+criterion = torch.nn.CrossEntropyLoss()
 # Training
 def train(epoch):
     print('\nEpoch: %d' % epoch)
@@ -146,9 +148,11 @@ def test(epoch):
             'acc': acc,
             'epoch': epoch,
         }
-        if not os.path.isdir(f'checkpoint_{args.dataset}_{MODEL}'):
-            os.mkdir(f'checkpoint_{args.dataset}_{MODEL}')
-        torch.save(state, f'../checkpoint_{args.dataset}_{MODEL}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
+        checkpoint_folder_path = get_abs_path(["checkpoint"])
+        target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_{MODEL}'
+        if not os.path.isdir(target_checkpoint_folder_path):
+            os.mkdir(target_checkpoint_folder_path)
+        torch.save(state, f'{target_checkpoint_folder_path}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
         best_acc = acc
     if use_mlflow:
         log_dict= {'best/test_acc': acc}

@@ -21,6 +21,7 @@ from .transformer_block import Block, get_sinusoid_encoding
 from .custom_modules.custom_GELU import CustomGELU
 from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
 from .custom_modules.learnable_code_gate import LearnableCodeGate
+from .custom_modules.learnable_complex_gate import LearnableComplexGate
 from sklearn.metrics import accuracy_score
 from enum import Enum
 class TrainingPhase(Enum):
@@ -28,6 +29,9 @@ class TrainingPhase(Enum):
     GATE = 2
     WARMUP=3
 
+class GateSelectionMode(Enum):
+    PROBABILISTIC = 'prob'
+    DETERMINISTIC = 'det'
 class GateTrainingScheme(Enum):
     """
     The training scheme when training gates.
@@ -165,8 +169,10 @@ class T2T_ViT(nn.Module):
     def set_CE_IC_tradeoff(self, CE_IC_tradeoff):
         self.CE_IC_tradeoff = CE_IC_tradeoff
 
-    def set_gate_training_scheme(self, gate_training_scheme: GateTrainingScheme):
+    def set_gate_training_scheme_and_mode(self, gate_training_scheme: GateTrainingScheme, gate_selection_mode: GateSelectionMode):
         self.gate_training_scheme = gate_training_scheme
+        self.gate_selection_mode = gate_selection_mode
+
 
     '''
     sets intermediate classifiers that are hooked after inner transformer blocks
@@ -185,7 +191,6 @@ class T2T_ViT(nn.Module):
 
     
     def set_learnable_gates(self, device, gate_positions, direct_exit_prob_param=False, gate_type=GateType.UNCERTAINTY, proj_dim=32):
-
         self.gate_positions = gate_positions
         self.direct_exit_prob_param = direct_exit_prob_param
         self.gate_type = gate_type
@@ -195,8 +200,9 @@ class T2T_ViT(nn.Module):
         elif gate_type == GateType.CODE:
             self.gates = nn.ModuleList([
                 LearnableCodeGate(device, input_dim=self.embed_dim, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
-        # elif gate_type == GateType.UNCERTAINTY:
-        #     Gate = LearnableUncGate
+        elif gate_type == GateType.CODE_AND_UNC:
+            self.gates = nn.ModuleList([
+                LearnableComplexGate(device, input_dim=self.embed_dim, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
         
 
     def get_gate_prediction(self, l, current_logits, intermediate_codes):
@@ -204,6 +210,8 @@ class T2T_ViT(nn.Module):
             return self.gates[l](current_logits)
         elif self.gate_type == GateType.CODE:
             return self.gates[l](intermediate_codes[l])
+        elif self.gate_type == GateType.CODE_AND_UNC:
+            return self.gates[l](intermediate_codes[l], current_logits)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -314,7 +322,10 @@ class T2T_ViT(nn.Module):
                 else:
                     current_gate_logit = self.get_gate_prediction(l, current_logits, intermediate_codes)
                     current_gate_prob = torch.nn.functional.sigmoid(current_gate_logit)
-                do_exit = torch.bernoulli(current_gate_prob)
+                if self.gate_selection_mode == GateSelectionMode.PROBABILISTIC:
+                    do_exit = torch.bernoulli(current_gate_prob)
+                elif self.gate_selection_mode == GateSelectionMode.DETERMINISTIC:
+                    do_exit = current_gate_prob >= 0.5
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
                 current_exit_index = current_exit.flatten().nonzero()
                 sample_exit_level_map[current_exit_index] = l

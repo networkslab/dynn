@@ -9,12 +9,12 @@ from timm.models import *
 from timm.models import create_model
 
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
-from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root
+from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
 from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow
 from models.custom_modules.gate import GateType
 from utils import progress_bar
-from models.t2t_vit import TrainingPhase, GateTrainingScheme
+from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
 
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
@@ -34,6 +34,7 @@ parser.add_argument('--resume', '-r', action='store_true',
                     help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct') # learn_gate, learn_gate_direct
 parser.add_argument('--gate', type=GateType, default=GateType.CODE, choices=GateType) # unc, code, code_and_unc
+parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.PROBABILISTIC, choices=GateSelectionMode)
 parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
                     help='Drop path rate (default: None)')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
@@ -70,8 +71,8 @@ best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
 IMG_SIZE = 224
-train_loader, test_loader = get_cifar_10_dataloaders(img_size=IMG_SIZE, train_batch_size=args.batch)
-NUM_CLASSES = 10
+train_loader, test_loader = get_cifar_100_dataloaders(img_size=IMG_SIZE, train_batch_size=args.batch)
+NUM_CLASSES = 100
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
@@ -91,7 +92,7 @@ net = create_model(
 
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
-net.set_gate_training_scheme(gate_training_scheme)
+net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
 
 direct_exit_prob_param = args.model == 'learn_gate_direct'
 net.set_learnable_gates(device, transformer_layer_gating, direct_exit_prob_param=direct_exit_prob_param, gate_type= args.gate, proj_dim=proj_dim)
