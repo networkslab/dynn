@@ -80,7 +80,7 @@ if device == 'cuda':
     cudnn.benchmark = True
 print('transfer learning, load t2t-vit pretrained model')
 pretrained_model_weights = "../model_weights/81.7_T2T_ViTt_14.pth.tar"
-load_for_transfer_learning(net.module, pretrained_model_weights, use_ema=True, strict=False, num_classes=10)
+load_for_transfer_learning(net.module, pretrained_model_weights, use_ema=True, strict=False, num_classes=NUM_CLASSES)
 
 print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
 parameters = [{'params': net.module.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
