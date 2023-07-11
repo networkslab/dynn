@@ -53,7 +53,7 @@ start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
 train_loader, test_loader = get_cifar_100_dataloaders(train_batch_size=args.batch)
 NUM_CLASSES = 100
-MODEL = 't2t_vit_7'
+MODEL = 't2t_vit_14'
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
@@ -79,7 +79,7 @@ if device == 'cuda':
     net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
 print('transfer learning, load t2t-vit pretrained model')
-pretrained_model_weights = "../model_weights/71.7_T2T_ViT_7.pth.tar"
+pretrained_model_weights = "../model_weights/81.7_T2T_ViTt_14.pth.tar"
 load_for_transfer_learning(net.module, pretrained_model_weights, use_ema=True, strict=False, num_classes=10)
 
 print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
