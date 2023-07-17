@@ -8,6 +8,7 @@ T2T-ViT
 """
 import torch
 import torch.nn as nn
+from queue import Queue
 
 from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
@@ -27,7 +28,7 @@ from enum import Enum
 class TrainingPhase(Enum):
     CLASSIFIER = 1
     GATE = 2
-    WARMUP=3
+    WARMUP = 3
 
 class GateSelectionMode(Enum):
     PROBABILISTIC = 'prob'
@@ -137,6 +138,34 @@ class IntermediateOutput:
         self.predictions_idx = predictions_idx
         self.remaining_idx = remaining_idx
 
+class ClassifierAccuracyTracker:
+    def __init__(self, level: int, patience: int = 3):
+        self.level = level
+        self.patience = patience
+        self.test_accs = Queue(maxsize=patience)
+        self.frozen = False
+
+    def insert_acc(self, test_acc):
+        if self.frozen:
+            return
+        if self.test_accs.qsize() == self.patience:
+            removed_acc = self.test_accs.get()
+            print(f"Removing tracked value of {removed_acc} and inserting {test_acc}")
+        self.test_accs.put(test_acc)
+
+    def should_freeze(self, most_recent_acc):
+        if self.frozen:
+            print(f"Classifier {self.level} already frozen")
+        if self.test_accs.qsize() < self.patience:
+            return False
+        should_freeze = True
+        while not self.test_accs.empty():
+            acc = self.test_accs.get()
+            if acc < most_recent_acc:
+                should_freeze = False
+        self.frozen = should_freeze
+        return should_freeze
+
 class T2T_ViT(nn.Module):
     def __init__(self, img_size=224, tokens_type='performer', in_chans=3, num_classes=1000, embed_dim=768, depth=12,
                  num_heads=12, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
@@ -161,8 +190,6 @@ class T2T_ViT(nn.Module):
         self.norm = norm_layer(embed_dim)
         # Classifier head
         self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
-
-
         trunc_normal_(self.cls_token, std=.02)
         self.apply(self._init_weights)
 
@@ -184,7 +211,21 @@ class T2T_ViT(nn.Module):
         self.intermediate_heads = nn.ModuleList([
             nn.Linear(self.embed_dim, self.num_classes) if self.num_classes > 0 else nn.Identity()
             for _ in range(len(self.intermediate_head_positions))])
-    
+        self.accuracy_trackers = []
+        for i in range(len(self.intermediate_head_positions)):
+            self.accuracy_trackers.append(ClassifierAccuracyTracker(i))
+
+    def freeze_intermediate_classifier(self, classifier_idx):
+        classifier = self.intermediate_heads[classifier_idx]
+        for param in classifier.parameters():
+            param.requires_grad = False
+
+    def are_all_classifiers_frozen(self):
+        for i in range(len(self.accuracy_trackers)):
+            if not self.accuracy_trackers[i].frozen:
+                return False
+        return True
+
     def set_threshold_gates(self, gates):
         assert len(gates) == len(self.intermediate_heads), 'Net should have as many gates as there are intermediate classifiers'
         self.gates = gates
