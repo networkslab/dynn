@@ -1,5 +1,5 @@
 import torch
-from models.t2t_vit import TrainingPhase
+from models.t2t_vit import TrainingPhase, GateSelectionMode
 from torch import nn
 import numpy as np
 from enum import Enum

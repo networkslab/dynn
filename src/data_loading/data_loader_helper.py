@@ -2,6 +2,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import os
+from pathlib import Path
 
 CIFAR_10_IMG_SIZE = 32 * 32
 CIFAR_100_IMG_SIZE = 32 * 32
@@ -68,3 +69,10 @@ def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_
     test_loader = torch.utils.data.DataLoader(
         test_set, batch_size=test_batch_size, shuffle=False)
     return train_loader, test_loader
+
+def get_latest_checkpoint_path(checkpoint_subpath):
+    checkpoint_path = get_abs_path(["checkpoint", checkpoint_subpath])
+    files = os.listdir(checkpoint_path)
+    sorted_files = sorted(files)
+    latest = sorted_files[-1]
+    return f"{checkpoint_path}{latest}"

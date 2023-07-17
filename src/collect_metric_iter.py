@@ -120,6 +120,8 @@ def collect_metrics(things_of_interest, gates_count, targets,
     elif training_phase == TrainingPhase.GATE: # metrics for gate training
         exit_count_optimal_gate = things_of_interest['exit_count_optimal_gate']
         accumulator = stored_metrics['exit_count_optimal_gate']
+        correct_exit_count_last_batch = things_of_interest['correct_exit_count']
+        stored_metrics['correct_exit_count'] += correct_exit_count_last_batch 
         combined_counts = {k: exit_count_optimal_gate.get(k, 0) + accumulator.get(k, 0) for k in set(exit_count_optimal_gate) | set(accumulator)}
         stored_metrics['exit_count_optimal_gate'] = combined_counts
     return stored_per_x, stored_metrics
@@ -217,7 +219,8 @@ def get_empty_storage_metrics(num_gates):
         'correct_cheating_per_gate': [0 for _ in range(num_gates)],
         'gated_correct_count_per_gate': [0 for _ in range(num_gates)],
         'gated_pred_count_per_gate': [0 for _ in range(num_gates)],
-        'exit_count_optimal_gate': dict.fromkeys(range(num_gates), 0)
+        'exit_count_optimal_gate': dict.fromkeys(range(num_gates), 0),
+        'correct_exit_count': 0
     }
     return stored_per_x, stored_metrics
 
