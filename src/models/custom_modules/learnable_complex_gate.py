@@ -2,11 +2,11 @@ from typing import Tuple
 import torch
 from torch import Tensor
 from models.custom_modules.gate import Gate, GateType
-from uncertainty_metrics import compute_detached_uncertainty_metrics
+
 
 import numpy as np
 from sklearn import random_projection
-
+from metrics_utils import compute_detached_uncertainty_metrics
 class LearnableComplexGate(Gate):
     """
     Takes both relu code which are projected and the uncertainty metrics to decide whether to exit or not

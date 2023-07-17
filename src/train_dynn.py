@@ -35,6 +35,7 @@ parser.add_argument('--resume','-r',action='store_true',help='resume from checkp
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
 parser.add_argument('--gate',type=GateType,default=GateType.CODE,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
+parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.PROBABILISTIC, choices=GateSelectionMode)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--ckp-path',type=str,default='checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',help='path to checkpoint transfer learning model')
 parser.add_argument('--gate_training_scheme',default='DEFAULT',help='Gate training scheme (how to handle gates after first exit)',
