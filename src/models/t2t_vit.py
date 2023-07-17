@@ -336,9 +336,9 @@ class T2T_ViT(nn.Module):
                 'num_exits_per_gate':num_exits_per_gate,
                 'gated_y_logits': gated_y_logits,
                 'sample_exit_level_map': sample_exit_level_map}
-            if self.training:
+            if not self.training:
                 inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets)
-                things_of_interest| {'inc_inc_H_list': inc_inc_H_list,
+                things_of_interest= things_of_interest| {'inc_inc_H_list': inc_inc_H_list,
                 'c_c_H_list': c_c_H_list,
                 'c_inc_H_list': c_inc_H_list,
                 'inc_inc_H_list_std': inc_inc_H_list_std,
