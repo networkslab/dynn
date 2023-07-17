@@ -70,9 +70,13 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
+checkpoint_path = os.path.join(get_path_to_project_root(), 'checkpoint')
+assert os.path.isdir(checkpoint_path)
+checkpoint_path_to_load = os.path.join(checkpoint_path, args.ckp_path)
+
 IMG_SIZE = 224
-train_loader, test_loader = get_cifar_100_dataloaders(img_size=IMG_SIZE, train_batch_size=args.batch)
-NUM_CLASSES = 100
+train_loader, test_loader = get_cifar_10_dataloaders(img_size=IMG_SIZE, train_batch_size=args.batch)
+NUM_CLASSES = 10
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
