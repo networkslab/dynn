@@ -11,7 +11,7 @@ from timm.models import create_model
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
 from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
-from log_helper import log_metrics_mlflow, setup_mlflow
+from log_helper import log_metrics_mlflow, setup_mlflow, compute_gated_accuracy
 from models.custom_modules.gate import GateType
 from utils import progress_bar
 from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
@@ -162,7 +162,11 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
             stored_per_x, stored_metrics = get_empty_storage_metrics(args.G)
             training_phase = switch_training_phase(training_phase)
         elif bilevel_opt and batch_idx % bilevel_batch_count == 0:
-            training_phase = switch_training_phase(training_phase)
+            if net.module.are_all_classifiers_frozen(): # no need to train classifiers anymore
+                training_phase = TrainingPhase.GATE
+                print("All classifiers are frozen, setting training phase to gate")
+            else:
+                training_phase = switch_training_phase(training_phase)
 
         if training_phase == TrainingPhase.WARMUP:
             loss, things_of_interest = get_loss(inputs, targets, optimizer, net)
@@ -190,6 +194,7 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
                 'Classifier Loss: %.3f | Classifier Acc: %.3f%% (%d/%d)' %
                 (loss, gated_acc, correct, total_classifier))
 
+            stored_metrics['acc'] = gated_acc
             if use_mlflow:
                 log_dict = log_metrics_mlflow(
                     'train',
@@ -203,9 +208,9 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
                 mlflow.log_metrics(log_dict,
                                    step=batch_idx + (epoch * len(train_loader)))
         elif training_phase == TrainingPhase.WARMUP:
-            total_classifier+= targets.size(0)
+            total_classifier += targets.size(0)
             classifier_loss += loss.item()
-            loss = classifier_loss /  total_classifier
+            loss = classifier_loss / total_classifier
             progress_bar(batch_idx, len(train_loader),'Loss: %.3f | Warmup  time' %(loss))
 
             if use_mlflow:
@@ -237,7 +242,6 @@ def train(epoch, bilevel_opt = False, bilevel_batch_count = 20, classifier_warmu
             if batch_idx > 50:
                 print('++++++++++++++WARNING++++++++++++++ you are barely training to test some things')
                 break
-    stored_metrics['acc'] = gated_acc
 
     return stored_metrics
 
@@ -255,7 +259,7 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(test_loader):
             inputs, targets = inputs.to(device), targets.to(device)
-            loss, things_of_interest  = get_surrogate_loss(inputs, targets, optimizer, net)
+            loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net)
             gated_y_logits = things_of_interest['gated_y_logits']
             _, predicted = gated_y_logits.max(1)
             correct += predicted.eq(targets).sum().item()
@@ -278,6 +282,15 @@ def test(epoch):
                 if batch_idx>50:
                     print('++++++++++++++WARNING++++++++++++++ you are barely testing to test some things')
                     break
+        # Decide whether to freeze classifiers or not.
+        for idx in range(args.G):
+            classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
+            accuracy_tracker = net.module.accuracy_trackers[idx]
+            if accuracy_tracker.should_freeze(classifier_accuracy):
+                net.module.freeze_intermediate_classifier(idx)
+                print(f"FREEZING CLASSIFIER {idx}")
+            else:
+                accuracy_tracker.insert_acc(classifier_accuracy)
         if use_mlflow:
             log_dict = log_metrics_mlflow('test', acc, loss, len(transformer_layer_gating), stored_per_x_classifier,stored_metrics_classifier, total, total_classifier=total)
 
