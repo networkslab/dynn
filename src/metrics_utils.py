@@ -18,14 +18,17 @@ def check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets):
         length_code = code.shape[1]
         code = code[sorted_indices]
         H = torch.pairwise_distance(code[:, None], code, p=1)
-        num_correct = correct_id.sum()
+        boundary = correct_id.sum() # 
+        # H is a square matrix [i-i,i-c
+        #                       i-c,c-c]
         
-        c_c_H = torch.mean(H[-num_correct:, -num_correct:])/length_code
-        c_inc_H = torch.mean(H[:-num_correct, -num_correct:])/length_code
-        inc_inc_H = torch.mean(H[:-num_correct, :-num_correct])/length_code
-        inc_inc_H_std = torch.std(H[-num_correct:, -num_correct:])/length_code
-        c_c_H_std = torch.std(H[:-num_correct, -num_correct:])/length_code
-        c_inc_H_std = torch.std(H[:-num_correct, :-num_correct])/length_code
+        c_c_H = torch.mean(H[-boundary:, -boundary:])/length_code #  c-c, bottom right square
+        c_inc_H = torch.mean(H[:-boundary, -boundary:])/length_code #  i-c , top right rectangle (same as bottom left)
+        inc_inc_H = torch.mean(H[:-boundary, :-boundary])/length_code # i-i , top left square
+
+        inc_inc_H_std = torch.std(H[-boundary:, -boundary:])/length_code
+        c_c_H_std = torch.std(H[:-boundary, -boundary:])/length_code
+        c_inc_H_std = torch.std(H[:-boundary, :-boundary])/length_code
 
         inc_inc_H_list.append(inc_inc_H)
         c_c_H_list.append(c_c_H)
