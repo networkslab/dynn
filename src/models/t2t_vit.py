@@ -13,7 +13,7 @@ from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_
 import numpy as np
-
+from metrics_utils import check_hamming_vs_acc
 from models.custom_modules.gate import GateType
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
@@ -291,6 +291,10 @@ class T2T_ViT(nn.Module):
 
     def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase):
         final_head, intermediate_outs, intermediate_codes = self._forward_features(inputs)
+
+       
+
+
         final_logits = self.head(final_head)
         if training_phase == TrainingPhase.CLASSIFIER:
             # Gates are frozen, find first exit gate
@@ -326,12 +330,17 @@ class T2T_ViT(nn.Module):
             sample_exit_level_map[final_gate_exit.flatten().nonzero()] = len(self.intermediate_heads)
             num_exits_per_gate.append(torch.sum(final_gate_exit))
             gated_y_logits = gated_y_logits + torch.mul(final_gate_exit, final_logits) # last gate
+            inc_inc_H_list, c_c_H_list, c_inc_H_list = check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets)
+      
             things_of_interest = {
                 'intermediate_logits':intermediate_logits,
                 'final_logits':final_logits,
                 'num_exits_per_gate':num_exits_per_gate,
                 'gated_y_logits': gated_y_logits,
-                'sample_exit_level_map': sample_exit_level_map
+                'sample_exit_level_map': sample_exit_level_map,
+                'inc_inc_H_list': inc_inc_H_list,
+                'c_c_H_list': c_c_H_list,
+                'c_inc_H_list': c_inc_H_list
             }
             return gated_y_logits, things_of_interest
         elif training_phase == TrainingPhase.GATE:

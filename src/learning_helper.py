@@ -1,31 +1,12 @@
 import torch
+from metrics_utils import check_hamming_vs_acc
 from models.t2t_vit import TrainingPhase
 from torch import nn
 import numpy as np
-from enum import Enum
 
 criterion = nn.CrossEntropyLoss()
 
 
-def check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets):
-    inc_inc_H_list = []
-    c_c_H_list = []
-    c_inc_H_list = []
-    for g, code in enumerate(intermediate_codes):
-        _, predicted = intermediate_logits[g].max(1)
-        correct_id = predicted.eq(targets)
-        sorted_indices = torch.sort(correct_id.float())[1]
-        code = code.reshape(targets.shape[0], -1).float()
-        code = code[sorted_indices]
-        H = torch.pairwise_distance(code[:, None], code, p=1)
-        num_correct = correct_id.sum()
-        inc_inc_H = torch.mean(H[:-num_correct, :-num_correct])
-        c_c_H = torch.mean(H[-num_correct:, -num_correct:])
-        c_inc_H = torch.mean(H[:-num_correct, -num_correct:])
-        inc_inc_H_list.append(inc_inc_H)
-        c_c_H_list.append(c_c_H)
-        c_inc_H_list.append(c_inc_H)
-    return inc_inc_H_list, c_c_H_list, c_inc_H_list
 
 
 def get_loss(inputs, targets, optimizer, net):

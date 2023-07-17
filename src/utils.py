@@ -21,6 +21,8 @@ import logging
 import os
 from collections import OrderedDict
 
+
+
 _logger = logging.getLogger(__name__)
 
 def free(torch_tensor):
@@ -44,6 +46,8 @@ def resize_pos_embed(posemb, posemb_new): # example: 224:(14x14+1)-> 384: (24x24
     posemb = torch.cat([posemb_tok, posemb_grid], dim=1)   # [1, 24*24+1, dim]
     return posemb
 
+
+        
 def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del_posemb=False):
     if checkpoint_path and os.path.isfile(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
