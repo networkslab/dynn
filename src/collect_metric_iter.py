@@ -60,10 +60,16 @@ def collect_metrics(things_of_interest, gates_count, targets,
                     device, stored_per_x, stored_metrics, training_phase):
     if training_phase == TrainingPhase.CLASSIFIER or training_phase == TrainingPhase.WARMUP:
         intermediate_logits = things_of_interest['intermediate_logits']
-        for g in range(gates_count):
-                stored_metrics['hamming_incinc_per_gate'][g] +=free(things_of_interest['inc_inc_H_list'][g])
-                stored_metrics['hamming_corcor_per_gate'][g] +=free(things_of_interest['c_c_H_list'][g])
-                stored_metrics['hamming_corinc_per_gate'][g] +=free(things_of_interest['c_inc_H_list'][g])
+        if 'inc_inc_H_list' in things_of_interest:
+            for g in range(gates_count):
+                    stored_metrics['hamming_incinc_per_gate'][g] +=free(things_of_interest['inc_inc_H_list'][g])
+                    stored_metrics['hamming_corcor_per_gate'][g] +=free(things_of_interest['c_c_H_list'][g])
+                    stored_metrics['hamming_corinc_per_gate'][g] +=free(things_of_interest['c_inc_H_list'][g])
+
+                    stored_metrics['hamming_incinc_per_gate_std'][g] +=free(things_of_interest['inc_inc_H_list_std'][g])
+                    stored_metrics['hamming_corcor_per_gate_std'][g] +=free(things_of_interest['c_c_H_list_std'][g])
+                    stored_metrics['hamming_corinc_per_gate_std'][g] +=free(things_of_interest['c_inc_H_list_std'][g])
+
         if training_phase == TrainingPhase.CLASSIFIER: # the warmup phase do not have those metrics
             num_exits_per_gate = things_of_interest['num_exits_per_gate']
             gated_y_logits = things_of_interest['gated_y_logits']
@@ -225,6 +231,9 @@ def get_empty_storage_metrics(num_gates):
         'hamming_incinc_per_gate': [0 for _ in range(num_gates)],
         'hamming_corcor_per_gate': [0 for _ in range(num_gates)],
         'hamming_corinc_per_gate': [0 for _ in range(num_gates)],
+        'hamming_incinc_per_gate_std': [0 for _ in range(num_gates)],
+        'hamming_corcor_per_gate_std': [0 for _ in range(num_gates)],
+        'hamming_corinc_per_gate_std': [0 for _ in range(num_gates)],
         'cost_per_gate': [0 for _ in range(num_gates)],
         'ece_per_gate': [0 for _ in range(num_gates)],
         'correct_per_gate': [0 for _ in range(num_gates)],

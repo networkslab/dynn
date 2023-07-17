@@ -7,6 +7,9 @@ def check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets):
     inc_inc_H_list = []
     c_c_H_list = []
     c_inc_H_list = []
+    inc_inc_H_list_std = []
+    c_c_H_list_std = []
+    c_inc_H_list_std = []
     for g, code in enumerate(intermediate_codes):
         _, predicted = intermediate_logits[g].max(1)
         correct_id = predicted.eq(targets)
@@ -16,14 +19,23 @@ def check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets):
         code = code[sorted_indices]
         H = torch.pairwise_distance(code[:, None], code, p=1)
         num_correct = correct_id.sum()
+        
         c_c_H = torch.mean(H[-num_correct:, -num_correct:])/length_code
         c_inc_H = torch.mean(H[:-num_correct, -num_correct:])/length_code
         inc_inc_H = torch.mean(H[:-num_correct, :-num_correct])/length_code
-        
+        inc_inc_H_std = torch.std(H[-num_correct:, -num_correct:])/length_code
+        c_c_H_std = torch.std(H[:-num_correct, -num_correct:])/length_code
+        c_inc_H_std = torch.std(H[:-num_correct, :-num_correct])/length_code
+
         inc_inc_H_list.append(inc_inc_H)
         c_c_H_list.append(c_c_H)
         c_inc_H_list.append(c_inc_H)
-    return inc_inc_H_list, c_c_H_list, c_inc_H_list
+
+        inc_inc_H_list_std.append(inc_inc_H_std)
+        c_c_H_list_std.append(c_c_H_std)
+        c_inc_H_list_std.append(c_inc_H_std)
+
+    return inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std 
 
 def compute_detached_uncertainty_metrics(logits, targets):
     probs = torch.nn.functional.softmax(logits, dim=1)

@@ -330,18 +330,21 @@ class T2T_ViT(nn.Module):
             sample_exit_level_map[final_gate_exit.flatten().nonzero()] = len(self.intermediate_heads)
             num_exits_per_gate.append(torch.sum(final_gate_exit))
             gated_y_logits = gated_y_logits + torch.mul(final_gate_exit, final_logits) # last gate
-            inc_inc_H_list, c_c_H_list, c_inc_H_list = check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets)
-      
             things_of_interest = {
                 'intermediate_logits':intermediate_logits,
                 'final_logits':final_logits,
                 'num_exits_per_gate':num_exits_per_gate,
                 'gated_y_logits': gated_y_logits,
-                'sample_exit_level_map': sample_exit_level_map,
-                'inc_inc_H_list': inc_inc_H_list,
+                'sample_exit_level_map': sample_exit_level_map}
+            if self.training:
+                inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets)
+                things_of_interest| {'inc_inc_H_list': inc_inc_H_list,
                 'c_c_H_list': c_c_H_list,
-                'c_inc_H_list': c_inc_H_list
-            }
+                'c_inc_H_list': c_inc_H_list,
+                'inc_inc_H_list_std': inc_inc_H_list_std,
+                'c_c_H_list_std': c_c_H_list_std,
+                'c_inc_H_list_std': c_inc_H_list_std}
+            
             return gated_y_logits, things_of_interest
         elif training_phase == TrainingPhase.GATE:
             intermediate_losses = []
