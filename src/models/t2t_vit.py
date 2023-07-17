@@ -21,12 +21,17 @@ from .transformer_block import Block, get_sinusoid_encoding
 from .custom_modules.custom_GELU import CustomGELU
 from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
 from .custom_modules.learnable_code_gate import LearnableCodeGate
+from .custom_modules.learnable_complex_gate import LearnableComplexGate
+from sklearn.metrics import accuracy_score
 from enum import Enum
 class TrainingPhase(Enum):
     CLASSIFIER = 1
     GATE = 2
     WARMUP=3
 
+class GateSelectionMode(Enum):
+    PROBABILISTIC = 'prob'
+    DETERMINISTIC = 'det'
 class GateTrainingScheme(Enum):
     """
     The training scheme when training gates.
@@ -164,8 +169,10 @@ class T2T_ViT(nn.Module):
     def set_CE_IC_tradeoff(self, CE_IC_tradeoff):
         self.CE_IC_tradeoff = CE_IC_tradeoff
 
-    def set_gate_training_scheme(self, gate_training_scheme: GateTrainingScheme):
+    def set_gate_training_scheme_and_mode(self, gate_training_scheme: GateTrainingScheme, gate_selection_mode: GateSelectionMode):
         self.gate_training_scheme = gate_training_scheme
+        self.gate_selection_mode = gate_selection_mode
+
 
     '''
     sets intermediate classifiers that are hooked after inner transformer blocks
@@ -184,7 +191,6 @@ class T2T_ViT(nn.Module):
 
     
     def set_learnable_gates(self, device, gate_positions, direct_exit_prob_param=False, gate_type=GateType.UNCERTAINTY, proj_dim=32):
-
         self.gate_positions = gate_positions
         self.direct_exit_prob_param = direct_exit_prob_param
         self.gate_type = gate_type
@@ -194,8 +200,9 @@ class T2T_ViT(nn.Module):
         elif gate_type == GateType.CODE:
             self.gates = nn.ModuleList([
                 LearnableCodeGate(device, input_dim=self.embed_dim, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
-        # elif gate_type == GateType.UNCERTAINTY:
-        #     Gate = LearnableUncGate
+        elif gate_type == GateType.CODE_AND_UNC:
+            self.gates = nn.ModuleList([
+                LearnableComplexGate(device, input_dim=self.embed_dim, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
         
 
     def get_gate_prediction(self, l, current_logits, intermediate_codes):
@@ -203,6 +210,8 @@ class T2T_ViT(nn.Module):
             return self.gates[l](current_logits)
         elif self.gate_type == GateType.CODE:
             return self.gates[l](intermediate_codes[l])
+        elif self.gate_type == GateType.CODE_AND_UNC:
+            return self.gates[l](intermediate_codes[l], current_logits)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -317,7 +326,10 @@ class T2T_ViT(nn.Module):
                 else:
                     current_gate_logit = self.get_gate_prediction(l, current_logits, intermediate_codes)
                     current_gate_prob = torch.nn.functional.sigmoid(current_gate_logit)
-                do_exit = torch.bernoulli(current_gate_prob)
+                if self.gate_selection_mode == GateSelectionMode.PROBABILISTIC:
+                    do_exit = torch.bernoulli(current_gate_prob)
+                elif self.gate_selection_mode == GateSelectionMode.DETERMINISTIC:
+                    do_exit = current_gate_prob >= 0.5
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
                 current_exit_index = current_exit.flatten().nonzero()
                 sample_exit_level_map[current_exit_index] = l
@@ -379,30 +391,30 @@ class T2T_ViT(nn.Module):
             gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.intermediate_heads) + 1)
             gate_logits = torch.cat(gate_logits, dim=1)
             if self.gate_training_scheme == GateTrainingScheme.DEFAULT:
-                gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we dont have a gate there.
+                gate_target_one_hot = gate_target_one_hot[:,:-1]# chop the final level since we don't have a gate there.
                 gate_loss = gate_criterion(gate_logits.flatten(), gate_target_one_hot.double().flatten())
                 # addressing the class imbalance avec audace
                 # TODO This needs to be fixed to follow the same approach as what we do in the other if branches
                 weight_per_sample_per_gate = gate_target_one_hot.double().flatten() * (len(self.gates)) + 1
                 gate_loss = torch.mean(gate_loss * weight_per_sample_per_gate)
                 # Compute accuracy of exit
-                actual_exit = torch.argmax(torch.nn.functional.softmax(gate_logits, dim=1), dim=1)
-                correct_exit_count += torch.sum(actual_exit == gate_target).item()
+                actual_exit_binary = torch.nn.functional.sigmoid(gate_logits) >= 0.5
+                correct_exit_count += accuracy_score(actual_exit_binary.flatten().cpu(), gate_target_one_hot.double().flatten().cpu(), normalize=False)
                 things_of_interest = things_of_interest | {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'correct_exit_count': correct_exit_count}
                 return gate_loss, things_of_interest
             elif self.gate_training_scheme == GateTrainingScheme.IGNORE_SUBSEQUENT:
                 losses = []
                 exit_counts = []
                 for gate_idx in range(0, len(self.gate_positions)):
-                    samples_exiting_at_gate_idx = (gate_target == gate_idx).nonzero().flatten()
-                    exit_counts.append(len(samples_exiting_at_gate_idx))
-                    if len(samples_exiting_at_gate_idx) == 0:
+                    samples_idx_should_exit_at_gate = (gate_target == gate_idx).nonzero().flatten()
+                    exit_counts.append(len(samples_idx_should_exit_at_gate))
+                    if len(samples_idx_should_exit_at_gate) == 0:
                         continue
-                    one_hot_exiting_at_gate = gate_target_one_hot[samples_exiting_at_gate_idx]
+                    one_hot_exiting_at_gate = gate_target_one_hot[samples_idx_should_exit_at_gate]
                     one_hot_exiting_at_gate = one_hot_exiting_at_gate[:, :gate_idx + 1] # chop all gates after the relevant gate
-                    gate_logits_at_gate = gate_logits[samples_exiting_at_gate_idx, :(gate_idx + 1)]
-                    actual_exits = torch.argmax(torch.nn.functional.softmax(gate_logits_at_gate, dim = 1), dim=1)
-                    correct_exit_count += torch.sum(actual_exits == gate_idx).item()
+                    gate_logits_at_gate = gate_logits[samples_idx_should_exit_at_gate, :(gate_idx + 1)]
+                    actual_exit_binary = torch.nn.functional.sigmoid(gate_logits_at_gate) >= 0.5
+                    correct_exit_count += accuracy_score(actual_exit_binary.flatten().cpu(), one_hot_exiting_at_gate.double().flatten().cpu(), normalize=False)
                     losses.append(gate_criterion(gate_logits_at_gate, one_hot_exiting_at_gate.double()))
                 num_ones = len(targets)
                 num_zeroes = 0
@@ -429,10 +441,10 @@ class T2T_ViT(nn.Module):
                 zeros_loss_multiplier = torch.logical_not(hot_encode_subsequent).double().flatten()
                 multiplier = ones_loss_multiplier + zeros_loss_multiplier
                 # compute gate accuracies
-                actual_exits = torch.argmax(torch.nn.functional.softmax(gate_logits, dim = 1), dim=1)
-                correct_exit_count += torch.sum(actual_exits >= gate_target).item() # count as correct if we exit at the best gate or subsequently.
+                actual_exits_binary = torch.nn.functional.sigmoid(gate_logits) >= 0.5
+                correct_exit_count += accuracy_score(actual_exits_binary.flatten().cpu(), hot_encode_subsequent.double().flatten().cpu(), normalize=False)
                 gate_loss = torch.mean(gate_loss * multiplier)
-                things_of_interest = things_of_interest | {'intermediate_logits':intermediate_logits, 'final_logits':final_logits, 'correct_exit_count': correct_exit_count}
+                things_of_interest = things_of_interest | {'intermediate_logits': intermediate_logits, 'final_logits':final_logits, 'correct_exit_count': correct_exit_count}
                 return gate_loss, things_of_interest
 
 @register_model

@@ -14,8 +14,10 @@ import torch.backends.cudnn as cudnn
 import torch.optim as optim
 from timm.models import *
 from timm.models import create_model
+from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
 
-from data_loading.data_loader_helper import get_cifar_10_dataloaders
+
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_latest_checkpoint_path, get_abs_path
 from utils import load_for_transfer_learning
 from utils import progress_bar
 from log_helper import setup_mlflow
@@ -49,9 +51,11 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
-train_loader, test_loader = get_cifar_10_dataloaders(train_batch_size=args.batch)
-NUM_CLASSES = 10
+train_loader, test_loader = get_cifar_100_dataloaders(train_batch_size=args.batch)
+NUM_CLASSES = 100
 MODEL = 't2t_vit_7'
+
+latest_checkpoint_path = get_latest_checkpoint_path("checkpoint_cifar100_t2t_vit_7")
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
@@ -73,12 +77,27 @@ net = create_model(
 
 net = net.to(device)
 
+print('transfer learning, load t2t-vit pretrained model')
+pretrained_model_weights = "model_weights/71.7_T2T_ViT_7.pth.tar"
+load_for_transfer_learning(net, pretrained_model_weights, use_ema=True, strict=False, num_classes=NUM_CLASSES)
+
 if device == 'cuda':
     net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
-print('transfer learning, load t2t-vit pretrained model')
-pretrained_model_weights = "../model_weights/71.7_T2T_ViT_7.pth.tar"
-load_for_transfer_learning(net.module, pretrained_model_weights, use_ema=True, strict=False, num_classes=10)
+
+
+if args.resume:
+    # Load checkpoint.
+    print('==> Resuming from checkpoint..')
+    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+    checkpoint = torch.load(latest_checkpoint_path, map_location=torch.device(device))
+    param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
+    print("Missing keys:", param_with_issues.missing_keys)
+    print("Unexpected_keys keys:", param_with_issues.unexpected_keys)
+    best_acc = checkpoint['acc']
+    start_epoch = checkpoint['epoch']
+
+
 
 print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
 parameters = [{'params': net.module.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},
@@ -90,7 +109,7 @@ optimizer = optim.SGD(parameters, lr=args.lr,
                       momentum=0.9, weight_decay=args.wd)
 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=args.min_lr, T_max=60)
 
-criterion = nn.CrossEntropyLoss()
+criterion = torch.nn.CrossEntropyLoss()
 # Training
 def train(epoch):
     print('\nEpoch: %d' % epoch)
@@ -146,9 +165,11 @@ def test(epoch):
             'acc': acc,
             'epoch': epoch,
         }
-        if not os.path.isdir(f'checkpoint_{args.dataset}_{MODEL}'):
-            os.mkdir(f'checkpoint_{args.dataset}_{MODEL}')
-        torch.save(state, f'../checkpoint_{args.dataset}_{MODEL}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
+        checkpoint_folder_path = get_abs_path(["checkpoint"])
+        target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_{MODEL}'
+        if not os.path.isdir(target_checkpoint_folder_path):
+            os.mkdir(target_checkpoint_folder_path)
+        torch.save(state, f'{target_checkpoint_folder_path}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
         best_acc = acc
     if use_mlflow:
         log_dict= {'best/test_acc': acc}

@@ -10,13 +10,13 @@ from timm.models import *
 from timm.models import create_model
 import numpy as np
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
-from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root
+from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
 from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow
 from models.custom_modules.gate import GateType
 from utils import progress_bar
-from models.t2t_vit import TrainingPhase, GateTrainingScheme
 from early_exit_utils import switch_training_phase
+from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
 
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
@@ -67,6 +67,10 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
+checkpoint_path = os.path.join(get_path_to_project_root(), 'checkpoint')
+assert os.path.isdir(checkpoint_path)
+checkpoint_path_to_load = os.path.join(checkpoint_path, args.ckp_path)
+
 IMG_SIZE = 224
 train_loader, test_loader = get_cifar_10_dataloaders(
     img_size=IMG_SIZE, train_batch_size=args.batch, test_batch_size=args.batch)
@@ -89,7 +93,8 @@ net = create_model('t2t_vit_7',
 
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
-net.set_gate_training_scheme(gate_training_scheme)
+net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
+
 direct_exit_prob_param = args.model == 'learn_gate_direct'
 net.set_learnable_gates(device,
                         transformer_layer_gating,
@@ -228,18 +233,10 @@ def train(epoch,
             total_gate += targets.size(0)
             gate_loss += loss.item()
             loss = gate_loss / total_gate
-            progress_bar(batch_idx, len(train_loader),
-                         'Gate Loss: %.3f ' % (loss))
-            exit_count_optimal_gate_perc = {
-                k: v / total_gate * 100
-                for k, v in stored_metrics['exit_count_optimal_gate'].items()
-            }
-            gate_exit_acc = stored_metrics[
-                'correct_exit_count'] / total_gate * 100
-            log_dict = {
-                'train/gate_loss': loss,
-                'train/gate_exit_acc': gate_exit_acc
-            }
+            progress_bar(batch_idx, len(train_loader), 'Gate Loss: %.3f ' % (loss))
+            exit_count_optimal_gate_perc = {k: v / total_gate * 100 for k, v in stored_metrics['exit_count_optimal_gate'].items()}
+            gate_exit_acc = stored_metrics['correct_exit_count'] / (total_gate * args.G) * 100
+            log_dict ={'train/gate_loss':loss, 'train/gate_exit_acc': gate_exit_acc}
             for g in range(args.G):
                 log_dict['train' + '/optimal_percent_exit' +
                          str(g)] = exit_count_optimal_gate_perc[g]
@@ -262,7 +259,9 @@ def test(epoch):
     test_loss = 0
     correct = 0
     total = 0
-    stored_per_x, stored_metrics = get_empty_storage_metrics(
+    stored_per_x_classifier, stored_metrics_classifier = get_empty_storage_metrics(
+        len(transformer_layer_gating))
+    stored_per_x_gate, stored_metrics_gate = get_empty_storage_metrics(
         len(transformer_layer_gating))
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(test_loader):
@@ -275,9 +274,10 @@ def test(epoch):
             total += targets.size(0)
 
             test_loss += loss.item()
-            stored_per_x, stored_metrics = collect_metrics(
-                things_of_interest, args.G, targets, device, stored_per_x,
-                stored_metrics, TrainingPhase.CLASSIFIER)
+            stored_per_x_classifier, stored_metrics_classifier = collect_metrics(things_of_interest, args.G, targets, device,
+                                                           stored_per_x_classifier, stored_metrics_classifier, TrainingPhase.CLASSIFIER)
+            stored_per_x_gate, stored_metrics_gate = collect_metrics(things_of_interest, args.G, targets, device,
+                                                                                 stored_per_x_gate, stored_metrics_gate, TrainingPhase.GATE)
 
             gated_acc = 100. * correct / total
             loss = test_loss / (batch_idx + 1)
@@ -298,11 +298,14 @@ def test(epoch):
                     gated_acc=gated_acc,
                     loss=loss,
                     G=args.G,
-                    stored_per_x=stored_per_x,
-                    stored_metrics=stored_metrics,
+                    stored_per_x=stored_per_x_classifier,
+                    stored_metrics=stored_metrics_classifier,
                     total_classifier=total,
                     batch=targets.size(0))
 
+          
+            gate_exit_acc = stored_metrics_gate['correct_exit_count'] / (total * args.G) * 100
+            log_dict['test/gate_exit_acc'] = gate_exit_acc
             mlflow.log_metrics(log_dict,
                                step=batch_idx + (epoch * len(train_loader)))
     # Save checkpoint.
@@ -323,7 +326,7 @@ def test(epoch):
     if use_mlflow:
         log_dict = {'best/test_acc': gated_acc}
         mlflow.log_metrics(log_dict)
-    return stored_metrics
+    return stored_metrics_classifier
 
 
 for epoch in range(start_epoch, start_epoch + args.num_epoch):
