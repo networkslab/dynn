@@ -4,3 +4,6 @@ PyYAML==6.0
 timm==0.4.9
 torch==2.0.1
 torchvision==0.15.2
+scikit-learn==3.1.0
+torchmetrics==1.0.0
+torchvision==0.15.2
