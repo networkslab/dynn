@@ -2,7 +2,7 @@ from typing import Tuple
 import torch
 from torch import Tensor
 from models.custom_modules.gate import Gate, GateType
-from uncertainty_metrics import compute_detached_uncertainty_metrics
+from metrics_utils import compute_detached_uncertainty_metrics
 
 class LearnableUncGate(Gate):
     def __init__(self):

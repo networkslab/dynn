@@ -1,7 +1,7 @@
 from enum import Enum
 import numpy as np
 from plotting_util import generate_thresholding_plots
-from uncertainty_metrics import compute_detached_uncertainty_metrics
+from metrics_utils import compute_detached_uncertainty_metrics
 
 
 class THRESH(Enum):

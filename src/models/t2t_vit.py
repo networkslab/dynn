@@ -14,7 +14,7 @@ from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_
 import numpy as np
-
+from metrics_utils import check_hamming_vs_acc
 from models.custom_modules.gate import GateType
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
@@ -294,14 +294,14 @@ class T2T_ViT(nn.Module):
         return x[:, 0], intermediate_outs, intermediate_codes
 
     def forward(self, x):
-        x, intermediate_outs, _ = self._forward_features(x)
+        x, intermediate_outs, intermediate_codes = self._forward_features(x)
         intermediate_logits = []
         if intermediate_outs: # what is this?
             for head_idx, intermediate_head in enumerate(self.intermediate_heads):
                 intermediate_logits.append(intermediate_head(intermediate_outs[head_idx]))
         x = self.head(x)
         # The intermediate outs are unnormalized
-        return x, intermediate_logits
+        return x, intermediate_logits,intermediate_codes
 
     
     # this is only to be used for training
@@ -341,6 +341,10 @@ class T2T_ViT(nn.Module):
 
     def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase):
         final_head, intermediate_outs, intermediate_codes = self._forward_features(inputs)
+
+       
+
+
         final_logits = self.head(final_head)
         if training_phase == TrainingPhase.CLASSIFIER:
             # Gates are frozen, find first exit gate
@@ -384,8 +388,16 @@ class T2T_ViT(nn.Module):
                 'final_logits':final_logits,
                 'num_exits_per_gate':num_exits_per_gate,
                 'gated_y_logits': gated_y_logits,
-                'sample_exit_level_map': sample_exit_level_map
-            }
+                'sample_exit_level_map': sample_exit_level_map}
+            if not self.training:
+                inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets)
+                things_of_interest= things_of_interest| {'inc_inc_H_list': inc_inc_H_list,
+                'c_c_H_list': c_c_H_list,
+                'c_inc_H_list': c_inc_H_list,
+                'inc_inc_H_list_std': inc_inc_H_list_std,
+                'c_c_H_list_std': c_c_H_list_std,
+                'c_inc_H_list_std': c_inc_H_list_std}
+            
             return gated_y_logits, things_of_interest
         elif training_phase == TrainingPhase.GATE:
             intermediate_losses = []

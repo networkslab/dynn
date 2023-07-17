@@ -1,23 +1,36 @@
 import torch
-from models.t2t_vit import TrainingPhase, GateSelectionMode
+from metrics_utils import check_hamming_vs_acc
+from models.t2t_vit import TrainingPhase
 from torch import nn
 import numpy as np
-from enum import Enum
-
 
 criterion = nn.CrossEntropyLoss()
+
+
+
 
 def get_loss(inputs, targets, optimizer, net):
 
     optimizer.zero_grad()
-    final_logits, intermediate_logits = net(inputs)
+    final_logits, intermediate_logits, intermediate_codes = net(inputs)
     loss = criterion(
         final_logits,
         targets)  # the grad_fn of this loss should be None if frozen
     for intermediate_logit in intermediate_logits:
         intermediate_loss = criterion(intermediate_logit, targets)
         loss += intermediate_loss
-    things_of_interest = {'intermediate_logits':intermediate_logits,'final_logits':final_logits}
+    inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(
+        intermediate_logits, intermediate_codes, targets)
+    things_of_interest = {
+        'intermediate_logits': intermediate_logits,
+        'final_logits': final_logits,
+        'inc_inc_H_list': inc_inc_H_list,
+        'c_c_H_list': c_c_H_list,
+        'c_inc_H_list': c_inc_H_list,
+        'inc_inc_H_list_std': inc_inc_H_list_std,
+        'c_c_H_list_std': c_c_H_list_std,
+        'c_inc_H_list_std': c_inc_H_list_std
+    }
     return loss, things_of_interest
 
 
@@ -32,8 +45,7 @@ def get_dumb_loss(inputs, targets, optimizer, net):
     return loss, y_pred, intermediate_outputs
 
 
-def get_surrogate_loss(inputs, targets, optimizer, net,
-                       training_phase=None):
+def get_surrogate_loss(inputs, targets, optimizer, net, training_phase=None):
     if net.training:
         optimizer.zero_grad()
         loss = None
@@ -45,17 +57,18 @@ def get_surrogate_loss(inputs, targets, optimizer, net,
         elif training_phase == TrainingPhase.GATE:
             loss, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=training_phase)
-            
+
     else:
         gated_y_logits, things_of_interest = net.module.surrogate_forward(
-                inputs, targets, training_phase = TrainingPhase.CLASSIFIER)
+            inputs, targets, training_phase=TrainingPhase.CLASSIFIER)
         classifier_loss = criterion(gated_y_logits, targets)
         things_of_interest['gated_y_logits'] = gated_y_logits
         gate_loss, things_of_interest_gate = net.module.surrogate_forward(
-                inputs, targets, training_phase = TrainingPhase.GATE)
+            inputs, targets, training_phase=TrainingPhase.GATE)
         loss = (gate_loss + classifier_loss) / 2
         things_of_interest.update(things_of_interest_gate)
     return loss, things_of_interest
+
 
 def freeze_backbone(network, excluded_submodules: list[str]):
     model_parameters = filter(lambda p: p.requires_grad, network.parameters())
@@ -64,12 +77,14 @@ def freeze_backbone(network, excluded_submodules: list[str]):
     for param in network.module.parameters():
         param.requires_grad = False
 
-
-    for submodule_attr_name in excluded_submodules: # Unfreeze excluded submodules to be trained.
+    for submodule_attr_name in excluded_submodules:  # Unfreeze excluded submodules to be trained.
         for submodule in getattr(network.module, submodule_attr_name):
             for param in submodule.parameters():
                 param.requires_grad = True
 
-    trainable_parameters = filter(lambda p: p.requires_grad, network.parameters())
-    num_trainable_params = sum([np.prod(p.size()) for p in trainable_parameters])
-    print('Successfully froze network: from {} to {} trainable params.'.format(total_num_parameters,num_trainable_params))
+    trainable_parameters = filter(lambda p: p.requires_grad,
+                                  network.parameters())
+    num_trainable_params = sum(
+        [np.prod(p.size()) for p in trainable_parameters])
+    print('Successfully froze network: from {} to {} trainable params.'.format(
+        total_num_parameters, num_trainable_params))
