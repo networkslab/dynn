@@ -84,8 +84,8 @@ class Block(nn.Module):
 
     def forward_get_code(self, x):
         x = x + self.drop_path(self.attn(self.norm1(x)))
-        x, act_codes = self.mlp.forward_get_code(self.norm2(x))
-        x = x + self.drop_path(x)
+        a, act_codes = self.mlp.forward_get_code(self.norm2(x))
+        x = x + self.drop_path(a)
         return x, act_codes
 
 

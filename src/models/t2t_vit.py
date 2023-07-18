@@ -301,7 +301,7 @@ class T2T_ViT(nn.Module):
                 intermediate_logits.append(intermediate_head(intermediate_outs[head_idx]))
         x = self.head(x)
         # The intermediate outs are unnormalized
-        return x, intermediate_logits,intermediate_codes
+        return x, intermediate_logits, intermediate_codes
 
     
     # this is only to be used for training
