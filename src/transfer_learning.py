@@ -8,27 +8,26 @@
 import argparse
 import os
 import torch
-
 import mlflow
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
+
+import torchvision
+import torchvision.transforms as transforms
 from timm.models import *
 from timm.models import create_model
-from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
-
-
-from data_loading.data_loader_helper import get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_latest_checkpoint_path, get_abs_path
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_abs_path
 from utils import load_for_transfer_learning
 from utils import progress_bar
 from log_helper import setup_mlflow
-
+from models import *
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr', default=2e-4, type=float, help='minimal learning rate')
 parser.add_argument('--dataset', type=str, default='cifar10',
                     help='cifar10 or cifar100')
-parser.add_argument('--batch', type=int, default=64,
+parser.add_argument('--batch', type=int, default=4,
                     help='batch size')
 parser.add_argument('--resume', '-r', action='store_true',
                     help='resume from checkpoint')
@@ -45,17 +44,28 @@ if use_mlflow:
     name = "_".join([str(a) for a in [args.dataset, args.batch]])
     cfg = vars(args)
     setup_mlflow(name, cfg)
-
+path_project = get_path_to_project_root()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # device = 'cuda'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
-train_loader, test_loader = get_cifar_100_dataloaders(train_batch_size=args.batch)
-NUM_CLASSES = 100
+if args.dataset=='cifar10':
+    NUM_CLASSES = 10
+    img_size = 384
+    train_loader, test_loader = get_cifar_10_dataloaders(img_size = img_size,train_batch_size=args.batch, test_batch_size=args.batch)
+    
+    pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar10_t2t-vit_14_98.3.pth'))
+elif args.dataset=='cifar100':
+    NUM_CLASSES = 100
+    img_size = 224
+    train_loader, test_loader = get_cifar_100_dataloaders(img_size = img_size,train_batch_size=args.batch)
+    
+    pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cirfar100_t2t-vit-14_88.4.pth'))
 MODEL = 't2t_vit_14'
 
-latest_checkpoint_path = get_latest_checkpoint_path("checkpoint_cifar100_t2t_vit_7")
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
@@ -72,33 +82,27 @@ net = create_model(
     bn_tf=False,
     bn_momentum=None,
     bn_eps=None,
-    img_size=224)
+    img_size=img_size)
 
 
 net = net.to(device)
-
-print('transfer learning, load t2t-vit pretrained model')
-pretrained_model_weights = "model_weights/71.7_T2T_ViT_7.pth.tar"
-load_for_transfer_learning(net, pretrained_model_weights, use_ema=True, strict=False, num_classes=NUM_CLASSES)
 
 if device == 'cuda':
     net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
 print('transfer learning, load t2t-vit pretrained model')
-pretrained_model_weights = "../model_weights/81.7_T2T_ViTt_14.pth.tar"
+
 load_for_transfer_learning(net.module, pretrained_model_weights, use_ema=True, strict=False, num_classes=NUM_CLASSES)
 
 
-if args.resume:
-    # Load checkpoint.
-    print('==> Resuming from checkpoint..')
-    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-    checkpoint = torch.load(latest_checkpoint_path, map_location=torch.device(device))
-    param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
-    print("Missing keys:", param_with_issues.missing_keys)
-    print("Unexpected_keys keys:", param_with_issues.unexpected_keys)
-    best_acc = checkpoint['acc']
-    start_epoch = checkpoint['epoch']
+# Load checkpoint.
+print('==> Resuming from checkpoint..')
+assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
+print("Missing keys:", param_with_issues.missing_keys)
+print("Unexpected_keys keys:", param_with_issues.unexpected_keys)
+best_acc = checkpoint['acc']
+start_epoch = checkpoint['epoch']
 
 
 
@@ -123,7 +127,7 @@ def train(epoch):
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs, _ = net(inputs)
+        outputs, _, _ = net(inputs)
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -148,7 +152,7 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(test_loader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs, _ = net(inputs)
+            outputs, _, _ = net(inputs)
             loss = criterion(outputs, targets)
 
             test_loss += loss.item()
@@ -180,6 +184,6 @@ def test(epoch):
         mlflow.end_run()
 
 for epoch in range(start_epoch, start_epoch+60):
-    train(epoch)
+    #train(epoch)
     test(epoch)
     scheduler.step()
