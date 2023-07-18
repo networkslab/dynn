@@ -17,7 +17,7 @@ from timm.models import create_model
 from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
 
 
-from data_loading.data_loader_helper import get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_abs_path
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_latest_checkpoint_path, get_abs_path
 from utils import load_for_transfer_learning
 from utils import progress_bar
 from log_helper import setup_mlflow
@@ -55,6 +55,8 @@ train_loader, test_loader = get_cifar_100_dataloaders(train_batch_size=args.batc
 NUM_CLASSES = 100
 MODEL = 't2t_vit_14'
 
+latest_checkpoint_path = get_latest_checkpoint_path("checkpoint_cifar100_t2t_vit_7")
+
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
@@ -75,12 +77,30 @@ net = create_model(
 
 net = net.to(device)
 
+print('transfer learning, load t2t-vit pretrained model')
+pretrained_model_weights = "model_weights/71.7_T2T_ViT_7.pth.tar"
+load_for_transfer_learning(net, pretrained_model_weights, use_ema=True, strict=False, num_classes=NUM_CLASSES)
+
 if device == 'cuda':
     net = torch.nn.DataParallel(net)
     cudnn.benchmark = True
 print('transfer learning, load t2t-vit pretrained model')
 pretrained_model_weights = "../model_weights/81.7_T2T_ViTt_14.pth.tar"
 load_for_transfer_learning(net.module, pretrained_model_weights, use_ema=True, strict=False, num_classes=NUM_CLASSES)
+
+
+if args.resume:
+    # Load checkpoint.
+    print('==> Resuming from checkpoint..')
+    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+    checkpoint = torch.load(latest_checkpoint_path, map_location=torch.device(device))
+    param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
+    print("Missing keys:", param_with_issues.missing_keys)
+    print("Unexpected_keys keys:", param_with_issues.unexpected_keys)
+    best_acc = checkpoint['acc']
+    start_epoch = checkpoint['epoch']
+
+
 
 print('set different lr for the t2t module, backbone and classifier(head) of T2T-ViT')
 parameters = [{'params': net.module.tokens_to_token.parameters(), 'lr': args.transfer_ratio * args.lr},

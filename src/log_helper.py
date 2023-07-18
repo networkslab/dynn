@@ -2,7 +2,7 @@ import numpy as np
 import mlflow
 from data_loading.data_loader_helper import get_abs_path
 
-def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_metrics, total, total_classifier):
+def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_metrics, total_classifier, batch):
     
     
     cheating_acc = 100. * stored_metrics['cheating_correct'] / total_classifier
@@ -31,6 +31,25 @@ def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_m
         log_dict[prefix_logger+'/ece' + str(g)] = ece_gate
         log_dict[prefix_logger+'/percent_exit' + str(g)] = stored_metrics['gated_pred_count_per_gate'][g] / total_classifier * 100
         log_dict[prefix_logger + '/gated_acc' + str(g)] = compute_gated_accuracy(stored_metrics, g)
+
+        
+        incorrect_to_incorrect = batch*stored_metrics['hamming_incinc_per_gate'][g] / total_classifier
+        incorrect_to_correct = batch*stored_metrics['hamming_corinc_per_gate'][g] / total_classifier 
+        correct_to_correct = batch*stored_metrics['hamming_corcor_per_gate'][g] / total_classifier
+        incorrect_to_incorrect_std = batch*stored_metrics['hamming_incinc_per_gate_std'][g] / total_classifier
+        incorrect_to_correct_std = batch*stored_metrics['hamming_corinc_per_gate_std'][g] / total_classifier 
+        correct_to_correct_std = batch*stored_metrics['hamming_corcor_per_gate_std'][g] / total_classifier
+        if not np.isnan(correct_to_correct):
+            log_dict[prefix_logger + '/hamming_cor' + str(g)] = correct_to_correct
+            log_dict[prefix_logger + '/hamming_cor_std' + str(g)] = correct_to_correct_std
+        if not np.isnan(incorrect_to_incorrect):
+            log_dict[prefix_logger + '/hamming_inc' + str(g)] = incorrect_to_incorrect
+            log_dict[prefix_logger + '/hamming_inc_std' + str(g)] = incorrect_to_incorrect_std
+        if not np.isnan(correct_to_correct) and not np.isnan(incorrect_to_incorrect):
+            log_dict[prefix_logger + '/hamming_corinc' + str(g)] = incorrect_to_correct
+            log_dict[prefix_logger + '/hamming_corinc_std' + str(g)] = incorrect_to_correct_std
+
+
     return log_dict
 
 def compute_gated_accuracy(stored_metrics, gate_idx):
@@ -42,7 +61,7 @@ def compute_gated_accuracy(stored_metrics, gate_idx):
 
 def setup_mlflow(run_name: str, cfg):
     print(run_name)
-    project = 'DyNN_code_fixed_acc'
+    project = 'DyNN_code_complex'
     mlruns_path = get_abs_path(["mlruns"])
     mlflow.set_tracking_uri(mlruns_path)
     mlflow.set_experiment(project)

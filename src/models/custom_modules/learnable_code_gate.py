@@ -23,7 +23,7 @@ class LearnableCodeGate(Gate):
         self.linear2 = torch.nn.Linear(proj_dim, 1)
 
     def forward(self, codes: Tensor) -> (Tensor):
-        flat_code = codes.reshape(-1,self.input_dim )
+        flat_code = codes.reshape(-1,self.input_dim)
         lower_dim_codes =  torch.matmul(flat_code.float(), self.random_projs)
         x = self.linear1(lower_dim_codes)
         x = torch.functional.F.relu(x)
