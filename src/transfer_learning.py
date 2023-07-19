@@ -50,6 +50,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
+
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
     img_size = 384
@@ -65,7 +66,6 @@ elif args.dataset=='cifar100':
     pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cirfar100_t2t-vit-14_88.4.pth'))
 MODEL = 't2t_vit_14'
-
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model

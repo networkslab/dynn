@@ -23,10 +23,10 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
-parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
+parser.add_argument('--dataset',type=str,default='cifar100',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.001,type=float,help='cost inference and cross entropy loss tradeoff')
-parser.add_argument('--G', default=6, type=int, help='number of gates')
+parser.add_argument('--G', default=13, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
 parser.add_argument('--warmup_batch_count',default=50,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
@@ -37,7 +37,6 @@ parser.add_argument('--gate',type=GateType,default=GateType.CODE,choices=GateTyp
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.PROBABILISTIC, choices=GateSelectionMode)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--ckp-path',type=str,default='checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth',help='path to checkpoint transfer learning model')
 parser.add_argument('--gate_training_scheme',default='DEFAULT',help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
@@ -67,19 +66,30 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
+path_project = get_path_to_project_root()
 
-checkpoint_path = os.path.join(get_path_to_project_root(), 'checkpoint')
-assert os.path.isdir(checkpoint_path)
-checkpoint_path_to_load = os.path.join(checkpoint_path, args.ckp_path)
 
-IMG_SIZE = 224
-train_loader, test_loader = get_cifar_10_dataloaders(
-    img_size=IMG_SIZE, train_batch_size=args.batch, test_batch_size=args.batch)
-NUM_CLASSES = 10
+
+if args.dataset=='cifar10':
+    NUM_CLASSES = 10
+    IMG_SIZE = 224
+    args.G = 6
+    train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, test_batch_size=args.batch)
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth'),
+                        map_location=torch.device(device))
+    MODEL = 't2t_vit_7'
+elif args.dataset=='cifar100':
+    NUM_CLASSES = 100
+    IMG_SIZE = 224
+    args.G = 13
+    train_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch)
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
+                        map_location=torch.device(device))
+    MODEL = 't2t_vit_14'
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
-net = create_model('t2t_vit_7',
+net = create_model(MODEL,
                    pretrained=False,
                    num_classes=NUM_CLASSES,
                    drop_rate=0.0,
@@ -112,9 +122,6 @@ if device == 'cuda':
 print('==> Resuming from checkpoint..')
 checkpoint_path = os.path.join(get_path_to_project_root(), 'checkpoint')
 assert os.path.isdir(checkpoint_path)
-checkpoint_path_to_load = os.path.join(checkpoint_path, args.ckp_path)
-checkpoint = torch.load(checkpoint_path_to_load,
-                        map_location=torch.device(device))
 param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
 print("Missing keys:", param_with_issues.missing_keys)
 print("Unexpected keys:", param_with_issues.unexpected_keys)

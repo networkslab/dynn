@@ -6,7 +6,7 @@ import numpy as np
 
 criterion = nn.CrossEntropyLoss()
 
-
+COMPUTE_HAMMING = False
 
 
 def get_loss(inputs, targets, optimizer, net):
@@ -19,18 +19,20 @@ def get_loss(inputs, targets, optimizer, net):
     for intermediate_logit in intermediate_logits:
         intermediate_loss = criterion(intermediate_logit, targets)
         loss += intermediate_loss
-    inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(
-        intermediate_logits, intermediate_codes, targets)
     things_of_interest = {
         'intermediate_logits': intermediate_logits,
-        'final_logits': final_logits,
-        'inc_inc_H_list': inc_inc_H_list,
-        'c_c_H_list': c_c_H_list,
-        'c_inc_H_list': c_inc_H_list,
-        'inc_inc_H_list_std': inc_inc_H_list_std,
-        'c_c_H_list_std': c_c_H_list_std,
-        'c_inc_H_list_std': c_inc_H_list_std
-    }
+        'final_logits': final_logits}
+    if COMPUTE_HAMMING:
+        inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(
+            intermediate_logits, intermediate_codes, targets)
+        things_of_interest = things_of_interest| {
+            'inc_inc_H_list': inc_inc_H_list,
+            'c_c_H_list': c_c_H_list,
+            'c_inc_H_list': c_inc_H_list,
+            'inc_inc_H_list_std': inc_inc_H_list_std,
+            'c_c_H_list_std': c_c_H_list_std,
+            'c_inc_H_list_std': c_inc_H_list_std
+        }
     return loss, things_of_interest
 
 
