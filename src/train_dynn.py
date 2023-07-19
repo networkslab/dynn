@@ -43,7 +43,6 @@ parser.add_argument('--proj_dim',default=32,help='Target dimension of random pro
 parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
 args = parser.parse_args()
 
-transformer_layer_gating = [g for g in range(args.G)]
 
 proj_dim = int(args.proj_dim)
 if args.barely_train:
@@ -86,6 +85,8 @@ elif args.dataset=='cifar100':
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                         map_location=torch.device(device))
     MODEL = 't2t_vit_14'
+
+transformer_layer_gating = [g for g in range(args.G)]
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
@@ -105,7 +106,7 @@ net = create_model(MODEL,
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
 net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
-
+print(args.G)
 direct_exit_prob_param = args.model == 'learn_gate_direct'
 net.set_learnable_gates(device,
                         transformer_layer_gating,
