@@ -11,7 +11,7 @@ from timm.models import create_model
 import numpy as np
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
-from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
+from learning_helper import get_loss, get_surrogate_loss, get_boosted_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow, compute_gated_accuracy
 from models.custom_modules.gate import GateType
 from utils import progress_bar
@@ -79,7 +79,7 @@ NUM_CLASSES = 10
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
-net = create_model('t2t_vit_7',
+net = create_model('t2t_vit_7_boosted',
                    pretrained=False,
                    num_classes=NUM_CLASSES,
                    drop_rate=0.0,
@@ -91,7 +91,6 @@ net = create_model('t2t_vit_7',
                    bn_momentum=None,
                    bn_eps=None,
                    img_size=IMG_SIZE)
-
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
 net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
@@ -257,6 +256,15 @@ def train(epoch,
 
     return stored_metrics
 
+def train_boosted(epoch):
+    for batch_idx, (inputs, targets) in enumerate(train_loader):
+        inputs, targets = inputs.to(device), targets.to(device)
+        boosted_loss = get_boosted_loss(inputs, targets, optimizer, net.module)
+        boosted_loss.backward()
+        optimizer.step()
+        progress_bar(
+            batch_idx, len(train_loader),
+            'Classifier Loss: %.3f' % boosted_loss)
 
 def test(epoch):
     global best_acc
@@ -344,14 +352,19 @@ def test(epoch):
     return stored_metrics_classifier
 
 
+# for epoch in range(start_epoch, start_epoch + args.num_epoch):
+#     classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
+#     stored_metrics_train = train(
+#         epoch,
+#         bilevel_opt=True,
+#         bilevel_batch_count=args.bilevel_batch_count,
+#         classifier_warmup_periods=classifier_warmup_period)
+#     stored_metrics_test = test(epoch)
+#     scheduler.step()
+
 for epoch in range(start_epoch, start_epoch + args.num_epoch):
-    classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
-    stored_metrics_train = train(
-        epoch,
-        bilevel_opt=True,
-        bilevel_batch_count=args.bilevel_batch_count,
-        classifier_warmup_periods=classifier_warmup_period)
-    stored_metrics_test = test(epoch)
+    train_boosted(epoch)
+    # stored_metrics_test = test(epoch)
     scheduler.step()
 
 mlflow.end_run()
