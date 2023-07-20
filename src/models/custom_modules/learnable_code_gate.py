@@ -12,7 +12,7 @@ class LearnableCodeGate(Gate):
         self.gate_type = GateType.CODE
         self.num_proj =num_proj
         self.proj_dim =proj_dim
-        self.input_dim = 512*197 # HARDCODED
+        self.input_dim = int(input_dim) # HARDCODED
         self.device = device # this is terrible
         random_projs = []
         for _ in range(self.num_proj):
