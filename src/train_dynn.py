@@ -16,7 +16,7 @@ from log_helper import log_metrics_mlflow, setup_mlflow, compute_gated_accuracy
 from models.custom_modules.gate import GateType
 from utils import progress_bar
 from early_exit_utils import switch_training_phase
-from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
+from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode, Boosted_T2T_ViT
 
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
@@ -96,11 +96,12 @@ net.set_intermediate_heads(transformer_layer_gating)
 net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
 
 direct_exit_prob_param = args.model == 'learn_gate_direct'
-net.set_learnable_gates(device,
-                        transformer_layer_gating,
-                        direct_exit_prob_param=direct_exit_prob_param,
-                        gate_type=args.gate,
-                        proj_dim=proj_dim)
+if not isinstance(net, Boosted_T2T_ViT):
+    net.set_learnable_gates(device,
+                            transformer_layer_gating,
+                            direct_exit_prob_param=direct_exit_prob_param,
+                            gate_type=args.gate,
+                            proj_dim=proj_dim)
 
 net = net.to(device)
 
@@ -121,7 +122,8 @@ best_acc = checkpoint['acc']
 start_epoch = checkpoint['epoch']
 
 # Backbone is always frozen
-freeze_backbone_helper(net, ['intermediate_heads', 'gates'])
+unfrozen_modules = ['intermediate_heads', 'gates'] if not isinstance(net.module, Boosted_T2T_ViT) else ['intermediate_heads']
+freeze_backbone_helper(net, unfrozen_modules)
 parameters = net.parameters()
 optimizer = optim.SGD(parameters,
                       lr=args.lr,
@@ -266,6 +268,25 @@ def train_boosted(epoch):
             batch_idx, len(train_loader),
             'Classifier Loss: %.3f' % boosted_loss)
 
+def test_boosted(epoch):
+    net.eval()
+    n_blocks = len(net.module.blocks)
+    corrects = [0] * n_blocks
+    totals = [0] * n_blocks
+    for x, y in test_loader:
+        x, y = x.cuda(), y.cuda()
+        with torch.no_grad():
+            outs = net.module.forward(x)
+        for i, out in enumerate(outs):
+            corrects[i] += (torch.argmax(out, 1) == y).sum().item()
+            totals[i] += y.shape[0]
+    corrects = [c / t * 100 for c, t in zip(corrects, totals)]
+    log_dict = {}
+    for blk in range(n_blocks):
+        log_dict['test' + '/accuracies' +
+                 str(blk)] = corrects[blk]
+    mlflow.log_metrics(log_dict)
+
 def test(epoch):
     global best_acc
     net.eval()
@@ -352,19 +373,21 @@ def test(epoch):
     return stored_metrics_classifier
 
 
-# for epoch in range(start_epoch, start_epoch + args.num_epoch):
-#     classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
-#     stored_metrics_train = train(
-#         epoch,
-#         bilevel_opt=True,
-#         bilevel_batch_count=args.bilevel_batch_count,
-#         classifier_warmup_periods=classifier_warmup_period)
-#     stored_metrics_test = test(epoch)
-#     scheduler.step()
-
-for epoch in range(start_epoch, start_epoch + args.num_epoch):
-    train_boosted(epoch)
-    # stored_metrics_test = test(epoch)
+if isinstance(net.module, Boosted_T2T_ViT):
+    for epoch in range(start_epoch, start_epoch + args.num_epoch):
+        train_boosted(epoch)
+        test_boosted(epoch)
+        # stored_metrics_test = test(epoch)
+        scheduler.step()
+else:
+    for epoch in range(start_epoch, start_epoch + args.num_epoch):
+        classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
+    stored_metrics_train = train(
+        epoch,
+        bilevel_opt=True,
+        bilevel_batch_count=args.bilevel_batch_count,
+        classifier_warmup_periods=classifier_warmup_period)
+    stored_metrics_test = test(epoch)
     scheduler.step()
 
 mlflow.end_run()
