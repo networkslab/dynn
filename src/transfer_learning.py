@@ -27,7 +27,7 @@ parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr', default=2e-4, type=float, help='minimal learning rate')
 parser.add_argument('--dataset', type=str, default='cifar10',
                     help='cifar10 or cifar100')
-parser.add_argument('--batch', type=int, default=4,
+parser.add_argument('--batch', type=int, default=64,
                     help='batch size')
 parser.add_argument('--resume', '-r', action='store_true',
                     help='resume from checkpoint')
@@ -50,22 +50,26 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 
+
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
-    img_size = 384
+    img_size = 224
     train_loader, test_loader = get_cifar_10_dataloaders(img_size = img_size,train_batch_size=args.batch, test_batch_size=args.batch)
     
-    pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
-    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar10_t2t-vit_14_98.3.pth'))
+    #pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
+    pretrained_model_weights = os.path.join(path_project,"model_weights/71.7_T2T_ViT_7.pth.tar")
+    MODEL = 't2t_vit_7'
+    if args.resume:
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'))
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     img_size = 224
     train_loader, test_loader = get_cifar_100_dataloaders(img_size = img_size,train_batch_size=args.batch)
     
     pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
-    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cirfar100_t2t-vit-14_88.4.pth'))
-MODEL = 't2t_vit_14'
-
+    if args.resume:
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cirfar100_t2t-vit-14_88.4.pth'))
+    MODEL = 't2t_vit_14'
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
@@ -94,15 +98,15 @@ print('transfer learning, load t2t-vit pretrained model')
 
 load_for_transfer_learning(net.module, pretrained_model_weights, use_ema=True, strict=False, num_classes=NUM_CLASSES)
 
-
-# Load checkpoint.
-print('==> Resuming from checkpoint..')
-assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
-param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
-print("Missing keys:", param_with_issues.missing_keys)
-print("Unexpected_keys keys:", param_with_issues.unexpected_keys)
-best_acc = checkpoint['acc']
-start_epoch = checkpoint['epoch']
+if args.resume:
+    # Load checkpoint.
+    print('==> Resuming from checkpoint..')
+    assert os.path.isdir('checkpoint'), 'Error: no checkpoint directory found!'
+    param_with_issues = net.load_state_dict(checkpoint['net'], strict=False)
+    print("Missing keys:", param_with_issues.missing_keys)
+    print("Unexpected_keys keys:", param_with_issues.unexpected_keys)
+    best_acc = checkpoint['acc']
+    start_epoch = checkpoint['epoch']
 
 
 
@@ -184,6 +188,6 @@ def test(epoch):
         mlflow.end_run()
 
 for epoch in range(start_epoch, start_epoch+60):
-    #train(epoch)
+    train(epoch)
     test(epoch)
     scheduler.step()

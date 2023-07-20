@@ -16,7 +16,7 @@ class LearnableComplexGate(Gate):
         self.gate_type = GateType.CODE_AND_UNC
         self.num_proj =num_proj
         self.proj_dim =proj_dim
-        self.input_dim = 512*197 # HARDCODED +4 accounts for the 4 uncertainy metrics.
+        self.input_dim = int(input_dim) 
         self.device = device # this is terrible
         random_projs = []
         for _ in range(self.num_proj):

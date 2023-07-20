@@ -61,7 +61,7 @@ def compute_gated_accuracy(stored_metrics, gate_idx):
 
 def setup_mlflow(run_name: str, cfg):
     print(run_name)
-    project = 'DyNN_code_complex'
+    project = 'rerun_cifar'
     mlruns_path = get_abs_path(["mlruns"])
     mlflow.set_tracking_uri(mlruns_path)
     mlflow.set_experiment(project)

@@ -178,7 +178,7 @@ class T2T_ViT(nn.Module):
         self.tokens_to_token = T2T_module(
                 img_size=img_size, tokens_type=tokens_type, in_chans=in_chans, embed_dim=embed_dim, token_dim=token_dim)
         num_patches = self.tokens_to_token.num_patches
-
+        self.mlp_dim = mlp_ratio*embed_dim
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.pos_embed = nn.Parameter(data=get_sinusoid_encoding(n_position=num_patches + 1, d_hid=embed_dim), requires_grad=False)
         self.pos_drop = nn.Dropout(p=drop_rate)
@@ -236,15 +236,16 @@ class T2T_ViT(nn.Module):
         self.gate_positions = gate_positions
         self.direct_exit_prob_param = direct_exit_prob_param
         self.gate_type = gate_type
+        input_dim_code = self.mlp_dim*(self.tokens_to_token.num_patches+1)
         if gate_type == GateType.UNCERTAINTY:
             self.gates = nn.ModuleList([
                 LearnableUncGate() for _ in range(len(self.gate_positions))])
         elif gate_type == GateType.CODE:
             self.gates = nn.ModuleList([
-                LearnableCodeGate(device, input_dim=self.embed_dim, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
+                LearnableCodeGate(device, input_dim=input_dim_code, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
         elif gate_type == GateType.CODE_AND_UNC:
             self.gates = nn.ModuleList([
-                LearnableComplexGate(device, input_dim=self.embed_dim, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
+                LearnableComplexGate(device, input_dim=input_dim_code, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
         
 
     def get_gate_prediction(self, l, current_logits, intermediate_codes):
@@ -340,7 +341,7 @@ class T2T_ViT(nn.Module):
         return torch.sum(torch.cat(all_y, axis=1), axis=1),  torch.sum(torch.cat(total_inference_cost, axis=1), axis=1), intermediate_logits
 
 
-    def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase):
+    def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase, COMPUTE_HAMMING=False):
         final_head, intermediate_outs, intermediate_codes = self._forward_features(inputs)
         final_logits = self.head(final_head)
         if training_phase == TrainingPhase.CLASSIFIER:
@@ -386,7 +387,7 @@ class T2T_ViT(nn.Module):
                 'num_exits_per_gate':num_exits_per_gate,
                 'gated_y_logits': gated_y_logits,
                 'sample_exit_level_map': sample_exit_level_map}
-            if not self.training:
+            if not self.training and COMPUTE_HAMMING:
                 inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets)
                 things_of_interest= things_of_interest| {'inc_inc_H_list': inc_inc_H_list,
                 'c_c_H_list': c_c_H_list,
