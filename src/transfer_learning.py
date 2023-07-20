@@ -60,7 +60,7 @@ if args.dataset=='cifar10':
     pretrained_model_weights = os.path.join(path_project,"model_weights/71.7_T2T_ViT_7.pth.tar")
     MODEL = 't2t_vit_7'
     if args.resume:
-        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar10_t2t-vit_14_98.3.pth'))
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'))
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     img_size = 224
