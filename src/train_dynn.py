@@ -382,7 +382,7 @@ def test(epoch):
 
 
 if isinstance(net.module, Boosted_T2T_ViT):
-    for epoch in range(start_epoch, start_epoch + 1):
+    for epoch in range(start_epoch, start_epoch + args.num_epoch):
         train_boosted(epoch)
         accs = test_boosted(epoch)
         # stored_metrics_test = test(epoch)
