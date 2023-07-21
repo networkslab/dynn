@@ -31,12 +31,11 @@ class CustomizedOpen():
 def dynamic_evaluate(model, test_loader, val_loader, args):
     tester = Tester(model, args)
 
-    # val_pred, val_target = tester.calc_logit(val_loader)
+    val_pred, val_target = tester.calc_logit(val_loader)
     test_pred, test_target = tester.calc_logit(test_loader)
-    val_pred, val_target = test_pred, test_target
 
-    FLOP_PER_LAYER = 1e6
-    flops = [FLOP_PER_LAYER * (i + 1) for i in range(len(model.module.blocks))]
+    COST_PER_LAYER = 1.0/7 * 100
+    costs_at_exit = [COST_PER_LAYER * (i + 1) for i in range(len(model.module.blocks))]
 
     acc_val_last = -1
     acc_test_last = -1
@@ -50,17 +49,10 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             n_blocks = len(model.module.blocks)
             probs = torch.exp(torch.log(_p) * torch.range(1, n_blocks))
             probs /= probs.sum()
-            acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred, val_target, probs, flops)
-            acc_test, exp_flops = tester.dynamic_eval_with_threshold(test_pred, test_target, flops, T)
-            # if args.flat_curve:
-            #     if acc_val > acc_val_last:
-            #         acc_val_last = acc_val
-            #         acc_test_last = acc_test
-            #     else:
-            #         acc_val = acc_val_last
-            #         acc_test = acc_test_last
-            print('valid acc: {:.3f}, test acc: {:.3f}, test flops: {:.2f}M'.format(acc_val, acc_test, exp_flops / 1e6))
-            fout.write('{} {}\n'.format(exp_flops.item(), acc_test))
+            acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred, val_target, probs, costs_at_exit)
+            acc_test, exp_cost = tester.dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T)
+            print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}%'.format(acc_val, acc_test, exp_cost))
+            fout.write('{} {}\n'.format(exp_cost.item(), acc_test))
 
 
 class Tester(object):
@@ -212,8 +204,8 @@ def main(args):
     net = load_model_from_checkpoint(checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
     net = net.to(device)
     
-    train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=64, test_batch_size=64)
-    dynamic_evaluate(net, test_loader, train_loader, args)
+    _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
+    dynamic_evaluate(net, test_loader, val_loader, args)
 
 
 
