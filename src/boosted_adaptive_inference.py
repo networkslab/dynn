@@ -2,11 +2,19 @@ from __future__ import absolute_import
 from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
+import argparse
 
 import torch
 import torch.nn as nn
 import os
+import torch.backends.cudnn as cudnn
 import math
+from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders
+from timm.models import *
+from timm.models import create_model
+
+from models.t2t_vit import Boosted_T2T_ViT
+
 
 class CustomizedOpen():
     def __init__(self, path, mode):
@@ -23,35 +31,34 @@ class CustomizedOpen():
 def dynamic_evaluate(model, test_loader, val_loader, args):
     tester = Tester(model, args)
 
-    val_pred, val_target = tester.calc_logit(val_loader)
+    # val_pred, val_target = tester.calc_logit(val_loader)
     test_pred, test_target = tester.calc_logit(test_loader)
+    val_pred, val_target = test_pred, test_target
 
-    flops = torch.load(os.path.join(args.result_dir, 'flops.pth'))
+    FLOP_PER_LAYER = 1e6
+    flops = [FLOP_PER_LAYER * (i + 1) for i in range(len(model.module.blocks))]
 
     acc_val_last = -1
     acc_test_last = -1
-    if args.flat_curve:
-        save_path = os.path.join(args.result_dir, 'dynamic_flat{}.txt'.format(args.save_suffix))
-    else:
-        save_path = os.path.join(args.result_dir, 'dynamic{}.txt'.format(args.save_suffix))
+    save_path = os.path.join(args.result_dir, 'dynamic{}.txt'.format(args.save_suffix))
 
     with CustomizedOpen(save_path, 'w') as fout:
         # for p in range(1, 100):
         for p in range(1, 40):
             print("*********************")
             _p = torch.FloatTensor(1).fill_(p * 1.0 / 20)
-            n_blocks = args.nBlocks * len(args.scale_list) if args.arch == 'ranet' else args.nBlocks
+            n_blocks = len(model.module.blocks)
             probs = torch.exp(torch.log(_p) * torch.range(1, n_blocks))
             probs /= probs.sum()
             acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred, val_target, probs, flops)
             acc_test, exp_flops = tester.dynamic_eval_with_threshold(test_pred, test_target, flops, T)
-            if args.flat_curve:
-                if acc_val > acc_val_last:
-                    acc_val_last = acc_val
-                    acc_test_last = acc_test
-                else:
-                    acc_val = acc_val_last
-                    acc_test = acc_test_last
+            # if args.flat_curve:
+            #     if acc_val > acc_val_last:
+            #         acc_val_last = acc_val
+            #         acc_test_last = acc_test
+            #     else:
+            #         acc_val = acc_val_last
+            #         acc_test = acc_test_last
             print('valid acc: {:.3f}, test acc: {:.3f}, test flops: {:.2f}M'.format(acc_val, acc_test, exp_flops / 1e6))
             fout.write('{} {}\n'.format(exp_flops.item(), acc_test))
 
@@ -63,8 +70,8 @@ class Tester(object):
         self.softmax = nn.Softmax(dim=1).cuda()
 
     def calc_logit(self, dataloader):
-        self.model.eval_all()
-        n_stage = self.args.nBlocks * len(self.args.scale_list) if self.args.arch == 'ranet' else self.args.nBlocks
+        self.model.eval()
+        n_stage = len(self.model.module.blocks)
         logits = [[] for _ in range(n_stage)]
         targets = []
         for i, (input, target) in enumerate(dataloader):
@@ -82,7 +89,7 @@ class Tester(object):
                     _t = _t.cpu()
                     logits[b].append(_t)
 
-            if i % self.args.print_freq == 0:
+            if i % 50 == 0:
                 print('Generate Logit: [{0}/{1}]'.format(i, len(dataloader)))
 
         for b in range(n_stage):
@@ -172,3 +179,65 @@ class Tester(object):
             acc_all += acc_rec[k]
 
         return acc * 100.0 / n_sample, expected_flops
+
+def load_model_from_checkpoint(checkpoint_path, device, num_classes, img_size):
+    checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
+    
+    net = create_model('t2t_vit_7_boosted',
+                       pretrained=False,
+                       num_classes=num_classes,
+                       drop_rate=0.0,
+                       drop_connect_rate=None,
+                       drop_path_rate=0.1,
+                       drop_block_rate=None,
+                       global_pool=None,
+                       bn_tf=False,
+                       bn_momentum=None,
+                       bn_eps=None,
+                       img_size=img_size)
+    
+    net.set_intermediate_heads(checkpoint['intermediate_head_positions'])
+    if device == 'cuda':
+        net = torch.nn.DataParallel(net)
+        cudnn.benchmark = True
+    net.load_state_dict(checkpoint['state_dict'], strict=False)
+    return net
+def main(args):
+    NUM_CLASSES = 10
+    IMG_SIZE = 224
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # LOAD MODEL
+    checkpoint_path = get_latest_checkpoint_path('checkpoint_cifar10_t2t_7_boosted')
+    net = load_model_from_checkpoint(checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
+    net = net.to(device)
+    
+    train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=64, test_batch_size=64)
+    dynamic_evaluate(net, test_loader, train_loader, args)
+
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+        description='Boosted eval')
+    parser.add_argument('--nBlocks', type=int, default=1)
+    parser.add_argument('--nChannels', type=int, default=32)
+    parser.add_argument('--base', type=int, default=4)
+    parser.add_argument('--stepmode', type=str, choices=['even', 'lin_grow'])
+    parser.add_argument('--step', type=int, default=1)
+    parser.add_argument('--growthRate', type=int, default=6)
+    parser.add_argument('--grFactor', default='1-2-4', type=str)
+    parser.add_argument('--prune', default='max', choices=['min', 'max'])
+    parser.add_argument('--bnFactor', default='1-2-4')
+    parser.add_argument('--bottleneck', default=True, type=bool)
+    parser.add_argument_group('boost', 'boosting setting')
+    parser.add_argument('--lr_f', default=0.1, type=float, help='lr for weak learner')
+    parser.add_argument('--lr_milestones', default='100,200', type=str, help='lr decay milestones')
+    parser.add_argument('--ensemble_reweight', default="1.0", type=str, help='ensemble weight of early classifiers')
+    parser.add_argument('--loss_equal', action='store_true', help='loss equalization')
+    parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
+    parser.add_argument('--save_suffix', type=str)
+    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--result_dir', type=str, help='Directory for storing FLOP and acc')
+    args = parser.parse_args()
+    main(args)

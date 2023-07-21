@@ -388,10 +388,11 @@ if isinstance(net.module, Boosted_T2T_ViT):
         # stored_metrics_test = test(epoch)
         scheduler.step()
     state = {
-        'net': net.state_dict(),
+        'state_dict': net.state_dict(),
+        'intermediate_head_positions': net.module.intermediate_head_positions
     }
     checkpoint_folder_path = get_abs_path(["checkpoint"])
-    target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_boosted'
+    target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_t2t_7_boosted'
     if not os.path.isdir(target_checkpoint_folder_path):
         os.mkdir(target_checkpoint_folder_path)
     torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
