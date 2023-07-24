@@ -28,7 +28,7 @@ parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.001,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
-parser.add_argument('--warmup_batch_count',default=50,type=int,help='number of batches for warmup where all classifier are trained')
+parser.add_argument('--warmup_batch_count',default=100,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
@@ -74,7 +74,7 @@ if args.dataset=='cifar10':
     IMG_SIZE = 224
     args.G = 6
     train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, test_batch_size=args.batch)
-    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_96.79.pth'),
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
     MODEL = 't2t_vit_7'
 elif args.dataset=='cifar100':
@@ -308,14 +308,14 @@ def test(epoch):
                     )
                     break
         # Decide whether to freeze classifiers or not.
-        for idx in range(args.G):
-            classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
-            accuracy_tracker = net.module.accuracy_trackers[idx]
-            if accuracy_tracker.should_freeze(classifier_accuracy):
-                net.module.freeze_intermediate_classifier(idx)
-                print(f"FREEZING CLASSIFIER {idx}")
-            else:
-                accuracy_tracker.insert_acc(classifier_accuracy)
+        # for idx in range(args.G):
+        #     classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
+        #     accuracy_tracker = net.module.accuracy_trackers[idx]
+        #     if accuracy_tracker.should_freeze(classifier_accuracy):
+        #         net.module.freeze_intermediate_classifier(idx)
+        #         print(f"FREEZING CLASSIFIER {idx}")
+        #     else:
+        #         accuracy_tracker.insert_acc(classifier_accuracy)
         if use_mlflow:
             log_dict = log_metrics_mlflow(
                     prefix_logger='test',
@@ -354,12 +354,12 @@ def test(epoch):
 
 
 for epoch in range(start_epoch, start_epoch + args.num_epoch):
-    classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
+    #classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
     stored_metrics_train = train(
         epoch,
         bilevel_opt=True,
         bilevel_batch_count=args.bilevel_batch_count,
-        classifier_warmup_periods=classifier_warmup_period)
+        classifier_warmup_periods=args.warmup_batch_count)
     stored_metrics_test = test(epoch)
     scheduler.step()
 
