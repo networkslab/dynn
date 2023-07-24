@@ -161,7 +161,7 @@ def train(epoch,
             training_phase = TrainingPhase.WARMUP
         elif classifier_warmup_periods > 0 and batch_idx == classifier_warmup_periods:  # only hit when we switch from warmup to normal
             # clean slate, we set every counter to zero
-            exit()
+            
             gate_loss = 0
             classifier_loss = 0
             correct = 0
