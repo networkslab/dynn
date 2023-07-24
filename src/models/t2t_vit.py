@@ -526,8 +526,8 @@ class Boosted_T2T_ViT(T2T_ViT):
 
         for blk_idx, blk in enumerate(self.blocks):
             x, _ = blk.forward_get_code(x)
-            normalized = self.norm(x)
             x[-1] = gradient_rescale(x[-1], 1.0 / (nBlocks - blk_idx))
+            normalized = self.norm(x)
             if blk_idx < len(self.intermediate_heads): # intermediate block
                 pred = self.intermediate_heads[blk_idx](normalized[:, 0])
             else:

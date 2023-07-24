@@ -21,6 +21,10 @@ from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode,
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
+parser.add_argument('--arch', type=str,
+                    choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14'],
+                    default='t2t_vit_7', help='model to train'
+                    )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
@@ -66,7 +70,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 path_project = get_path_to_project_root()
-
+model = args.arch
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
@@ -74,7 +78,6 @@ if args.dataset=='cifar10':
     train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, test_batch_size=args.batch)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
-    MODEL = 't2t_vit_7'
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     IMG_SIZE = 224
@@ -82,13 +85,11 @@ elif args.dataset=='cifar100':
     train_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                         map_location=torch.device(device))
-    MODEL = 't2t_vit_14'
-
 transformer_layer_gating = [g for g in range(args.G)]
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
-net = create_model('t2t_vit_7_boosted',
+net = create_model(model,  # TODO configure this to accept the architecture (boosted vs others etc...)
                    pretrained=False,
                    num_classes=NUM_CLASSES,
                    drop_rate=0.0,
@@ -399,12 +400,12 @@ if isinstance(net.module, Boosted_T2T_ViT):
 else:
     for epoch in range(start_epoch, start_epoch + args.num_epoch):
         classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
-    stored_metrics_train = train(
-        epoch,
-        bilevel_opt=True,
-        bilevel_batch_count=args.bilevel_batch_count,
-        classifier_warmup_periods=classifier_warmup_period)
-    stored_metrics_test = test(epoch)
-    scheduler.step()
+        stored_metrics_train = train(
+            epoch,
+            bilevel_opt=True,
+            bilevel_batch_count=args.bilevel_batch_count,
+            classifier_warmup_periods=classifier_warmup_period)
+        stored_metrics_test = test(epoch)
+        scheduler.step()
 
 mlflow.end_run()
