@@ -21,7 +21,8 @@ import logging
 import os
 from collections import OrderedDict
 import torch.nn.functional as F
-
+import numpy as np
+import random 
 
 _logger = logging.getLogger(__name__)
 
@@ -83,7 +84,12 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
         _logger.error("No checkpoint found at '{}'".format(checkpoint_path))
         raise FileNotFoundError()
 
-
+def fix_the_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
 
 def load_for_transfer_learning(model, checkpoint_path, use_ema=False, strict=True, num_classes=1000):
     state_dict = load_state_dict(checkpoint_path, model, use_ema, num_classes)
