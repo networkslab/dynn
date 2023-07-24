@@ -3,11 +3,13 @@ import torchvision
 import torchvision.transforms as transforms
 import os
 from pathlib import Path
+from torch.utils.data.sampler import SubsetRandomSampler
 
 CIFAR_10_IMG_SIZE = 32 * 32
 CIFAR_100_IMG_SIZE = 32 * 32
 
-
+RANDOM_SEED = 42
+generator = torch.Generator().manual_seed(RANDOM_SEED)
 def get_path_to_project_root():
     cwd = os.getcwd()
     root_abs_path_index = cwd.split("/").index("dynn")
@@ -18,7 +20,7 @@ def get_abs_path(paths_strings):
     src_abs_path = get_path_to_project_root()
     return f'{src_abs_path}/{subpath}/'
 
-def get_cifar_10_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100):
+def get_cifar_10_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100, val_size = 0):
     transform_train = transforms.Compose([
         transforms.Resize(img_size),
         transforms.RandomCrop(img_size, padding=(img_size//8)),
@@ -38,13 +40,20 @@ def get_cifar_10_dataloaders(img_size = 224, train_batch_size = 64, test_batch_s
         root=data_directory, train=True, download=True, transform=transform_train)
     test_set = torchvision.datasets.CIFAR10(
         root=data_directory, train=False, download=True, transform=transform_test)
-    train_loader = torch.utils.data.DataLoader(
-        train_set, batch_size=train_batch_size, shuffle=True) # pass num_workers=n if multiprocessing is needed.
     test_loader = torch.utils.data.DataLoader(
         test_set, batch_size=test_batch_size, shuffle=False)
-    return train_loader, test_loader
+    if val_size > 0:
+        train_indices, val_indices = torch.utils.data.random_split(train_set, [len(train_set) - val_size, val_size], generator=generator)
+        train_sampler = SubsetRandomSampler(train_indices.indices)
+        valid_sampler = SubsetRandomSampler(val_indices.indices)
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=train_batch_size, sampler=train_sampler)
+        val_loader = torch.utils.data.DataLoader(train_set, batch_size=train_batch_size, sampler=valid_sampler)   
+        return train_loader, val_loader, test_loader                                
+    else:
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=train_batch_size, shuffle=True) # pass num_workers=n if multiprocessing is needed.
+        return train_loader, test_loader
 
-def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100):
+def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100, val_size = 0):
     transform_train = transforms.Compose([
         transforms.Resize(img_size),
         transforms.RandomCrop(img_size, padding=(img_size//8)),
@@ -64,11 +73,19 @@ def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_
         root=data_directory, train=True, download=True, transform=transform_train)
     test_set = torchvision.datasets.CIFAR100(
         root=data_directory, train=False, download=True, transform=transform_test)
-    train_loader = torch.utils.data.DataLoader(
-        train_set, batch_size=train_batch_size, shuffle=True) # pass num_workers=n if multiprocessing is needed.
     test_loader = torch.utils.data.DataLoader(
         test_set, batch_size=test_batch_size, shuffle=False)
-    return train_loader, test_loader
+    if val_size > 0:
+        train_indices, val_indices = torch.utils.data.random_split(train_set, [len(train_set) - val_size, val_size], generator=generator)
+        train_sampler = SubsetRandomSampler(train_indices.indices)
+        valid_sampler = SubsetRandomSampler(val_indices.indices)
+        train_loader = torch.utils.data.DataLoader(train_set, batch_size=train_batch_size, sampler=train_sampler)
+        val_loader = torch.utils.data.DataLoader(train_set, batch_size=train_batch_size, sampler=valid_sampler)
+        return train_loader, val_loader, test_loader
+    else:
+        train_loader = torch.utils.data.DataLoader(
+            train_set, batch_size=train_batch_size, shuffle=True) # pass num_workers=n if multiprocessing is needed.
+        return train_loader, test_loader
 
 def get_latest_checkpoint_path(checkpoint_subpath):
     checkpoint_path = get_abs_path(["checkpoint", checkpoint_subpath])
