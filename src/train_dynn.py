@@ -23,19 +23,19 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
-parser.add_argument('--dataset',type=str,default='cifar100',help='cifar10 or cifar100')
+parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.001,type=float,help='cost inference and cross entropy loss tradeoff')
-parser.add_argument('--G', default=13, type=int, help='number of gates')
+parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
 parser.add_argument('--warmup_batch_count',default=50,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
-parser.add_argument('--gate',type=GateType,default=GateType.CODE,choices=GateType)  # unc, code, code_and_unc
+parser.add_argument('--gate',type=GateType,default=GateType.CODE_AND_UNC,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
-parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.PROBABILISTIC, choices=GateSelectionMode)
+parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--gate_training_scheme',default='DEFAULT',help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
@@ -74,7 +74,7 @@ if args.dataset=='cifar10':
     IMG_SIZE = 224
     args.G = 6
     train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, test_batch_size=args.batch)
-    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_90.47.pth'),
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.05_0.0005_96.79.pth'),
                         map_location=torch.device(device))
     MODEL = 't2t_vit_7'
 elif args.dataset=='cifar100':
@@ -161,6 +161,7 @@ def train(epoch,
             training_phase = TrainingPhase.WARMUP
         elif classifier_warmup_periods > 0 and batch_idx == classifier_warmup_periods:  # only hit when we switch from warmup to normal
             # clean slate, we set every counter to zero
+            exit()
             gate_loss = 0
             classifier_loss = 0
             correct = 0
