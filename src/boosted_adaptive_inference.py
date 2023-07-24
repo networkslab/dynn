@@ -9,7 +9,7 @@ import torch.nn as nn
 import os
 import torch.backends.cudnn as cudnn
 import math
-from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders
+from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders
 from timm.models import *
 from timm.models import create_model
 
@@ -146,7 +146,7 @@ class Tester(object):
 
         return acc * 100.0 / n_sample, expected_flops, T
 
-    def dynamic_eval_with_threshold(self, logits, targets, flops, T):
+    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds):
         n_stage, n_sample, _ = logits.size()
         max_preds, argmax_preds = logits.max(dim=2, keepdim=False) # take the max logits as confidence
 
@@ -155,7 +155,7 @@ class Tester(object):
         for i in range(n_sample):
             gold_label = targets[i]
             for k in range(n_stage):
-                if max_preds[k][i].item() >= T[k]: # force to exit at k
+                if max_preds[k][i].item() >= thresholds[k]: # force to exit at k
                     _g = int(gold_label.item())
                     _pred = int(argmax_preds[k][i].item())
                     if _g == _pred:
@@ -172,10 +172,10 @@ class Tester(object):
 
         return acc * 100.0 / n_sample, expected_flops
 
-def load_model_from_checkpoint(checkpoint_path, device, num_classes, img_size):
+def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_size):
     checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
     
-    net = create_model('t2t_vit_7_boosted',
+    net = create_model(arch,
                        pretrained=False,
                        num_classes=num_classes,
                        drop_rate=0.0,
@@ -200,11 +200,16 @@ def main(args):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # LOAD MODEL
-    checkpoint_path = get_latest_checkpoint_path('checkpoint_cifar10_t2t_7_boosted')
-    net = load_model_from_checkpoint(checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
+    checkpoint_path = get_latest_checkpoint_path(args.checkpoint_dir)
+    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
     net = net.to(device)
-    
-    _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
+
+    if args.dataset == 'cifar10':
+        _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
+    elif args.dataset == 'cifar100':
+        _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
+    else:
+        raise 'Unsupported dataset'
     dynamic_evaluate(net, test_loader, val_loader, args)
 
 
@@ -212,8 +217,10 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--nBlocks', type=int, default=1)
-    parser.add_argument('--nChannels', type=int, default=32)
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7'], default='t2t_vit_7_boosted', help='model')
+    parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
+    parser.add_argument('--checkpoint_dir', type=str, help='Directory of checkpoint for trained model')
+    parser.add_argument('--result_dir', type=str, help='Directory for storing FLOP and acc')
     parser.add_argument('--base', type=int, default=4)
     parser.add_argument('--stepmode', type=str, choices=['even', 'lin_grow'])
     parser.add_argument('--step', type=int, default=1)
@@ -227,9 +234,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_milestones', default='100,200', type=str, help='lr decay milestones')
     parser.add_argument('--ensemble_reweight', default="1.0", type=str, help='ensemble weight of early classifiers')
     parser.add_argument('--loss_equal', action='store_true', help='loss equalization')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
     parser.add_argument('--save_suffix', type=str)
     parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--result_dir', type=str, help='Directory for storing FLOP and acc')
     args = parser.parse_args()
     main(args)
