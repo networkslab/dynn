@@ -1,0 +1,34 @@
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 0 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 0.1 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 0.5 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 1 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 2 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 3 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 5 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+
+
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 0 --proj_dim 64 --gate_training_scheme DEFAULT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 0.1 --proj_dim 64 --gate_training_scheme DEFAULT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 0.5 --proj_dim 64 --gate_training_scheme DEFAULT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 1 --proj_dim 64 --gate_training_scheme DEFAULT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 2 --proj_dim 64 --gate_training_scheme DEFAULT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 3 --proj_dim 64 --gate_training_scheme DEFAULT  --dataset cifar10;
+python train_dynn.py --gate code_and_unc --ce_ic_tradeoff 5 --proj_dim 64 --gate_training_scheme DEFAULT  --dataset cifar10;
+
+python train_dynn.py --gate code --ce_ic_tradeoff 0 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code --ce_ic_tradeoff 0.1 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code --ce_ic_tradeoff 0.5 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code --ce_ic_tradeoff 1 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code --ce_ic_tradeoff 2 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code --ce_ic_tradeoff 3 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate code --ce_ic_tradeoff 5 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+
+
+
+python train_dynn.py --gate unc --ce_ic_tradeoff 0 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate unc --ce_ic_tradeoff 0.1 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate unc --ce_ic_tradeoff 0.5 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate unc --ce_ic_tradeoff 1 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate unc --ce_ic_tradeoff 2 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate unc --ce_ic_tradeoff 3 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
+python train_dynn.py --gate unc --ce_ic_tradeoff 5 --proj_dim 64 --gate_training_scheme EXIT_SUBSEQUENT  --dataset cifar10;
