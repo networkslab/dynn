@@ -11,20 +11,24 @@ from timm.models import create_model
 import numpy as np
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
-from learning_helper import get_loss, get_surrogate_loss, freeze_backbone as freeze_backbone_helper
+from learning_helper import get_loss, get_surrogate_loss, get_boosted_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow, compute_gated_accuracy
 from models.custom_modules.gate import GateType
 from utils import fix_the_seed, progress_bar
 from early_exit_utils import switch_training_phase
-from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode
+from models.t2t_vit import TrainingPhase, GateTrainingScheme, GateSelectionMode, Boosted_T2T_ViT
 
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
+parser.add_argument('--arch', type=str,
+                    choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14'],
+                    default='t2t_vit_7', help='model to train'
+                    )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
-parser.add_argument('--batch', type=int, default=4, help='batch size')
+parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.001,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
@@ -68,9 +72,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 path_project = get_path_to_project_root()
-
-
-
+model = args.arch
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
@@ -78,7 +80,6 @@ if args.dataset=='cifar10':
     train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, test_batch_size=args.batch)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
-    MODEL = 't2t_vit_7'
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     IMG_SIZE = 224
@@ -86,13 +87,11 @@ elif args.dataset=='cifar100':
     train_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                         map_location=torch.device(device))
-    MODEL = 't2t_vit_14'
-
 transformer_layer_gating = [g for g in range(args.G)]
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
-net = create_model(MODEL,
+net = create_model(model,  # TODO configure this to accept the architecture (boosted vs others etc...)
                    pretrained=False,
                    num_classes=NUM_CLASSES,
                    drop_rate=0.0,
@@ -104,17 +103,17 @@ net = create_model(MODEL,
                    bn_momentum=None,
                    bn_eps=None,
                    img_size=IMG_SIZE)
-
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
 net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
 print(args.G)
 direct_exit_prob_param = args.model == 'learn_gate_direct'
-net.set_learnable_gates(device,
-                        transformer_layer_gating,
-                        direct_exit_prob_param=direct_exit_prob_param,
-                        gate_type=args.gate,
-                        proj_dim=proj_dim)
+if not isinstance(net, Boosted_T2T_ViT):
+    net.set_learnable_gates(device,
+                            transformer_layer_gating,
+                            direct_exit_prob_param=direct_exit_prob_param,
+                            gate_type=args.gate,
+                            proj_dim=proj_dim)
 
 net = net.to(device)
 
@@ -132,7 +131,8 @@ best_acc = checkpoint['acc']
 start_epoch = checkpoint['epoch']
 
 # Backbone is always frozen
-freeze_backbone_helper(net, ['intermediate_heads', 'gates'])
+unfrozen_modules = ['intermediate_heads', 'gates'] if not isinstance(net.module, Boosted_T2T_ViT) else ['intermediate_heads']
+freeze_backbone_helper(net, unfrozen_modules)
 parameters = net.parameters()
 optimizer = optim.SGD(parameters,
                       lr=args.lr,
@@ -268,6 +268,36 @@ def train(epoch,
 
     return stored_metrics
 
+def train_boosted(epoch):
+    for batch_idx, (inputs, targets) in enumerate(train_loader):
+        inputs, targets = inputs.to(device), targets.to(device)
+        boosted_loss = get_boosted_loss(inputs, targets, optimizer, net.module)
+        boosted_loss.backward()
+        optimizer.step()
+        progress_bar(
+            batch_idx, len(train_loader),
+            'Classifier Loss: %.3f' % boosted_loss)
+
+
+def test_boosted(epoch):
+    net.eval()
+    n_blocks = len(net.module.blocks)
+    corrects = [0] * n_blocks
+    totals = [0] * n_blocks
+    for x, y in test_loader:
+        x, y = x.cuda(), y.cuda()
+        with torch.no_grad():
+            outs = net.module.forward(x)
+        for i, out in enumerate(outs):
+            corrects[i] += (torch.argmax(out, 1) == y).sum().item()
+            totals[i] += y.shape[0]
+    corrects = [c / t * 100 for c, t in zip(corrects, totals)]
+    log_dict = {}
+    for blk in range(n_blocks):
+        log_dict['test' + '/accuracies' +
+                 str(blk)] = corrects[blk]
+    mlflow.log_metrics(log_dict)
+    return corrects
 
 def test(epoch):
     global best_acc
@@ -355,14 +385,30 @@ def test(epoch):
     return stored_metrics_classifier
 
 
-for epoch in range(start_epoch, start_epoch + args.num_epoch):
-    #classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
-    stored_metrics_train = train(
-        epoch,
-        bilevel_opt=True,
-        bilevel_batch_count=args.bilevel_batch_count,
-        classifier_warmup_periods=args.warmup_batch_count)
-    stored_metrics_test = test(epoch)
-    scheduler.step()
+if isinstance(net.module, Boosted_T2T_ViT):
+    for epoch in range(start_epoch, start_epoch + args.num_epoch):
+        train_boosted(epoch)
+        accs = test_boosted(epoch)
+        # stored_metrics_test = test(epoch)
+        scheduler.step()
+    state = {
+        'state_dict': net.state_dict(),
+        'intermediate_head_positions': net.module.intermediate_head_positions
+    }
+    checkpoint_folder_path = get_abs_path(["checkpoint"])
+    target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_t2t_7_boosted'
+    if not os.path.isdir(target_checkpoint_folder_path):
+        os.mkdir(target_checkpoint_folder_path)
+    torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
+else:
+    for epoch in range(start_epoch, start_epoch + args.num_epoch):
+        classifier_warmup_period = 0 if epoch > start_epoch else args.warmup_batch_count
+        stored_metrics_train = train(
+            epoch,
+            bilevel_opt=True,
+            bilevel_batch_count=args.bilevel_batch_count,
+            classifier_warmup_periods=classifier_warmup_period)
+        stored_metrics_test = test(epoch)
+        scheduler.step()
 
 mlflow.end_run()
