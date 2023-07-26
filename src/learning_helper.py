@@ -82,8 +82,7 @@ def get_weighted_loss(inputs, targets, optimizer, net, training_phase=None):
             loss_per_point = torch.sum(L, dim=1) # we want to maintain this
             weighted_loss = P * L
             ratio = (loss_per_point/torch.sum(weighted_loss, dim=1))[:,None]
-            loss = weighted_loss * ratio
-            loss = loss.sum()
+            loss = torch.mean(weighted_loss * ratio)  
         elif training_phase == TrainingPhase.GATE:
             loss, things_of_interest = net.module.surrogate_forward(
                 inputs, targets, training_phase=training_phase)

@@ -513,7 +513,8 @@ class T2T_ViT(nn.Module):
                 current_logits = intermediate_head(intermediate_outs[l])
                 intermediate_logits.append(current_logits)
                 # if self.direct_exit_prob_param:
-                exit_gate_logit = self.get_gate_prediction(l, current_logits, intermediate_codes)
+                with torch.no_grad():
+                    exit_gate_logit = self.get_gate_prediction(l, current_logits, intermediate_codes)
                 g = torch.nn.functional.sigmoid(exit_gate_logit) # g(l)
                 sum_previous_gs = torch.sum(G, dim=1)[:, None]
                 p_exit_at_gate = torch.max(torch.zeros((targets.shape[0], 1)).to(inputs.device), torch.min(g, 1 - sum_previous_gs))
