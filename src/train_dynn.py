@@ -46,11 +46,12 @@ parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT',help='Gat
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
+parser.add_argument('--weighted_class_loss', default=True, help='How to compute loss of classifiers')
 args = parser.parse_args()
 
 
 fix_the_seed(seed=322)
-
+weighted = args.weighted_class_loss != 'False'
 if args.barely_train:
     print(
         '++++++++++++++WARNING++++++++++++++ you are barely training to test some things'
