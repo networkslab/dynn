@@ -29,28 +29,28 @@ parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
-parser.add_argument('--ce_ic_tradeoff',default=0.001,type=float,help='cost inference and cross entropy loss tradeoff')
+parser.add_argument('--ce_ic_tradeoff',default=1.5,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
-parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
-parser.add_argument('--warmup_batch_count',default=100,type=int,help='number of batches for warmup where all classifier are trained')
+parser.add_argument('--num_epoch', default=8, type=int, help='num of epochs')
+parser.add_argument('--warmup_batch_count',default=700,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
-parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
+parser.add_argument('--gate',type=GateType,default=GateType.CODE_AND_UNC,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--gate_training_scheme',default='DEFAULT',help='Gate training scheme (how to handle gates after first exit)',
+parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT',help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
+parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
 args = parser.parse_args()
 
 
 fix_the_seed(seed=322)
 
-proj_dim = int(args.proj_dim)
 if args.barely_train:
     print(
         '++++++++++++++WARNING++++++++++++++ you are barely training to test some things'
@@ -113,7 +113,8 @@ if not isinstance(net, Boosted_T2T_ViT):
                             transformer_layer_gating,
                             direct_exit_prob_param=direct_exit_prob_param,
                             gate_type=args.gate,
-                            proj_dim=proj_dim)
+                            proj_dim=int(args.proj_dim),
+                            num_proj=int(args.num_proj))
 
 net = net.to(device)
 
@@ -409,6 +410,7 @@ else:
             bilevel_batch_count=args.bilevel_batch_count,
             classifier_warmup_periods=classifier_warmup_period)
         stored_metrics_test = test(epoch)
-        scheduler.step()
+        if epoch > (start_epoch + args.num_epoch)/2: # online learning
+            scheduler.step()
 
 mlflow.end_run()

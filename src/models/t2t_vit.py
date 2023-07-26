@@ -232,7 +232,7 @@ class T2T_ViT(nn.Module):
         self.gates = gates
 
     
-    def set_learnable_gates(self, device, gate_positions, direct_exit_prob_param=False, gate_type=GateType.UNCERTAINTY, proj_dim=32):
+    def set_learnable_gates(self, device, gate_positions, direct_exit_prob_param=False, gate_type=GateType.UNCERTAINTY, proj_dim=32, num_proj=16):
         self.gate_positions = gate_positions
         self.direct_exit_prob_param = direct_exit_prob_param
         self.gate_type = gate_type
@@ -242,10 +242,10 @@ class T2T_ViT(nn.Module):
                 LearnableUncGate() for _ in range(len(self.gate_positions))])
         elif gate_type == GateType.CODE:
             self.gates = nn.ModuleList([
-                LearnableCodeGate(device, input_dim=input_dim_code, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
+                LearnableCodeGate(device, input_dim=input_dim_code, proj_dim=proj_dim, num_proj=num_proj) for _ in range(len(self.gate_positions))])
         elif gate_type == GateType.CODE_AND_UNC:
             self.gates = nn.ModuleList([
-                LearnableComplexGate(device, input_dim=input_dim_code, proj_dim=proj_dim) for _ in range(len(self.gate_positions))])
+                LearnableComplexGate(device, input_dim=input_dim_code, proj_dim=proj_dim, num_proj=num_proj) for _ in range(len(self.gate_positions))])
         
 
     def get_gate_prediction(self, l, current_logits, intermediate_codes):

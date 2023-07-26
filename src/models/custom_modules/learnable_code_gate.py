@@ -7,7 +7,7 @@ import numpy as np
 from sklearn import random_projection
 
 class LearnableCodeGate(Gate):
-    def __init__(self, device, input_dim, num_proj=4, proj_dim=32):
+    def __init__(self, device, input_dim, num_proj, proj_dim):
         super(Gate, self).__init__()
         self.gate_type = GateType.CODE
         self.num_proj =num_proj
