@@ -11,7 +11,7 @@ from timm.models import create_model
 import numpy as np
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
-from learning_helper import get_loss, get_surrogate_loss, get_boosted_loss, freeze_backbone as freeze_backbone_helper
+from learning_helper import get_loss, get_surrogate_loss, get_weighted_loss, get_boosted_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow, compute_gated_accuracy
 from models.custom_modules.gate import GateType
 from utils import progress_bar
@@ -32,22 +32,23 @@ parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.001,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
-parser.add_argument('--warmup_batch_count',default=50,type=int,help='number of batches for warmup where all classifier are trained')
+parser.add_argument('--warmup_batch_count',default=500,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
 parser.add_argument('--gate',type=GateType,default=GateType.CODE,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
-parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.PROBABILISTIC, choices=GateSelectionMode)
+parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--gate_training_scheme',default='DEFAULT',help='Gate training scheme (how to handle gates after first exit)',
+parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT',help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
-parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
+parser.add_argument('--use_mlflow',default='True',help='Store the run with mlflow')
+parser.add_argument('--weighted_class_loss', default=True, help='How to compute loss of classifiers')
 args = parser.parse_args()
 
-
+weighted = args.weighted_class_loss != 'False'
 proj_dim = int(args.proj_dim)
 if args.barely_train:
     print(
@@ -59,7 +60,7 @@ if use_mlflow:
     name = "_".join([
         str(a) for a in [
             args.model, args.ce_ic_tradeoff, args.gate,
-            args.gate_training_scheme
+            args.gate_training_scheme, f'{"WEIGHTED" if weighted else "SURR"}'
         ]
     ])
     cfg = vars(args)
@@ -71,6 +72,7 @@ best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 path_project = get_path_to_project_root()
 model = args.arch
+
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
@@ -180,9 +182,11 @@ def train(epoch,
             loss, things_of_interest = get_loss(inputs, targets, optimizer,
                                                 net)
         else:
-            loss, things_of_interest = get_surrogate_loss(
-                inputs, targets, optimizer, net, training_phase=training_phase)
-
+            if weighted:
+                loss, things_of_interest = get_weighted_loss(
+                    inputs, targets, optimizer, net, training_phase=training_phase)
+            else:
+                loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
         total += targets.size(0)
         loss.backward()
         optimizer.step()

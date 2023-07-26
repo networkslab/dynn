@@ -1,6 +1,6 @@
 import torch
 from metrics_utils import check_hamming_vs_acc
-from models.t2t_vit import TrainingPhase, Boosted_T2T_ViT
+from models.t2t_vit import TrainingPhase, Boosted_T2T_ViT, GateSelectionMode
 from torch import nn
 import numpy as np
 
@@ -71,6 +71,32 @@ def get_surrogate_loss(inputs, targets, optimizer, net, training_phase=None):
         things_of_interest.update(things_of_interest_gate)
     return loss, things_of_interest
 
+def get_weighted_loss(inputs, targets, optimizer, net, training_phase=None):
+    if net.training:
+        optimizer.zero_grad()
+        loss = None
+        # TODO Move training phase enum to this file.
+        if training_phase == TrainingPhase.CLASSIFIER:
+            P, L, things_of_interest = net.module.weighted_forward(
+                inputs, targets, training_phase=training_phase)
+            loss_per_point = torch.sum(L, dim=1) # we want to maintain this
+            weighted_loss = P * L
+            ratio = (loss_per_point/torch.sum(weighted_loss, dim=1))[:,None]
+            loss = torch.mean(weighted_loss * ratio)  
+        elif training_phase == TrainingPhase.GATE:
+            loss, things_of_interest = net.module.surrogate_forward(
+                inputs, targets, training_phase=training_phase)
+
+    else:
+        gated_y_logits, things_of_interest = net.module.surrogate_forward(
+            inputs, targets, training_phase=TrainingPhase.CLASSIFIER)
+        classifier_loss = criterion(gated_y_logits, targets)
+        things_of_interest['gated_y_logits'] = gated_y_logits
+        gate_loss, things_of_interest_gate = net.module.surrogate_forward(
+            inputs, targets, training_phase=TrainingPhase.GATE)
+        loss = (gate_loss + classifier_loss) / 2
+        things_of_interest.update(things_of_interest_gate)
+    return loss, things_of_interest
 
 def freeze_backbone(network, excluded_submodules: list[str]):
     model_parameters = filter(lambda p: p.requires_grad, network.parameters())
