@@ -11,7 +11,7 @@ from timm.models import create_model
 import numpy as np
 from collect_metric_iter import collect_metrics, get_empty_storage_metrics
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
-from learning_helper import get_loss, get_surrogate_loss, get_boosted_loss, freeze_backbone as freeze_backbone_helper
+from learning_helper import get_loss, get_surrogate_loss, get_weighted_loss, get_boosted_loss, freeze_backbone as freeze_backbone_helper
 from log_helper import log_metrics_mlflow, setup_mlflow, compute_gated_accuracy
 from models.custom_modules.gate import GateType
 from utils import progress_bar
@@ -180,7 +180,7 @@ def train(epoch,
             loss, things_of_interest = get_loss(inputs, targets, optimizer,
                                                 net)
         else:
-            loss, things_of_interest = get_surrogate_loss(
+            loss, things_of_interest = get_weighted_loss(
                 inputs, targets, optimizer, net, training_phase=training_phase)
 
         total += targets.size(0)
