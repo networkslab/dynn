@@ -33,21 +33,21 @@ def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_m
         log_dict[prefix_logger + '/gated_acc' + str(g)] = compute_gated_accuracy(stored_metrics, g)
 
         
-        incorrect_to_incorrect = batch*stored_metrics['hamming_incinc_per_gate'][g] / total_classifier
-        incorrect_to_correct = batch*stored_metrics['hamming_corinc_per_gate'][g] / total_classifier 
-        correct_to_correct = batch*stored_metrics['hamming_corcor_per_gate'][g] / total_classifier
-        incorrect_to_incorrect_std = batch*stored_metrics['hamming_incinc_per_gate_std'][g] / total_classifier
-        incorrect_to_correct_std = batch*stored_metrics['hamming_corinc_per_gate_std'][g] / total_classifier 
-        correct_to_correct_std = batch*stored_metrics['hamming_corcor_per_gate_std'][g] / total_classifier
-        if not np.isnan(correct_to_correct):
-            log_dict[prefix_logger + '/hamming_cor' + str(g)] = correct_to_correct
-            log_dict[prefix_logger + '/hamming_cor_std' + str(g)] = correct_to_correct_std
-        if not np.isnan(incorrect_to_incorrect):
-            log_dict[prefix_logger + '/hamming_inc' + str(g)] = incorrect_to_incorrect
-            log_dict[prefix_logger + '/hamming_inc_std' + str(g)] = incorrect_to_incorrect_std
-        if not np.isnan(correct_to_correct) and not np.isnan(incorrect_to_incorrect):
-            log_dict[prefix_logger + '/hamming_corinc' + str(g)] = incorrect_to_correct
-            log_dict[prefix_logger + '/hamming_corinc_std' + str(g)] = incorrect_to_correct_std
+        # incorrect_to_incorrect = batch*stored_metrics['hamming_incinc_per_gate'][g] / total_classifier
+        # incorrect_to_correct = batch*stored_metrics['hamming_corinc_per_gate'][g] / total_classifier 
+        # correct_to_correct = batch*stored_metrics['hamming_corcor_per_gate'][g] / total_classifier
+        # incorrect_to_incorrect_std = batch*stored_metrics['hamming_incinc_per_gate_std'][g] / total_classifier
+        # incorrect_to_correct_std = batch*stored_metrics['hamming_corinc_per_gate_std'][g] / total_classifier 
+        # correct_to_correct_std = batch*stored_metrics['hamming_corcor_per_gate_std'][g] / total_classifier
+        # if not np.isnan(correct_to_correct):
+        #     log_dict[prefix_logger + '/hamming_cor' + str(g)] = correct_to_correct
+        #     log_dict[prefix_logger + '/hamming_cor_std' + str(g)] = correct_to_correct_std
+        # if not np.isnan(incorrect_to_incorrect):
+        #     log_dict[prefix_logger + '/hamming_inc' + str(g)] = incorrect_to_incorrect
+        #     log_dict[prefix_logger + '/hamming_inc_std' + str(g)] = incorrect_to_incorrect_std
+        # if not np.isnan(correct_to_correct) and not np.isnan(incorrect_to_incorrect):
+        #     log_dict[prefix_logger + '/hamming_corinc' + str(g)] = incorrect_to_correct
+        #     log_dict[prefix_logger + '/hamming_corinc_std' + str(g)] = incorrect_to_correct_std
 
 
     return log_dict
