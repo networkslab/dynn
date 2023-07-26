@@ -60,15 +60,15 @@ def collect_metrics(things_of_interest, gates_count, targets,
                     device, stored_per_x, stored_metrics, training_phase):
     if training_phase == TrainingPhase.CLASSIFIER or training_phase == TrainingPhase.WARMUP:
         intermediate_logits = things_of_interest['intermediate_logits']
-        if 'inc_inc_H_list' in things_of_interest:
-            for g in range(gates_count):
-                    stored_metrics['hamming_incinc_per_gate'][g] +=free(things_of_interest['inc_inc_H_list'][g])
-                    stored_metrics['hamming_corcor_per_gate'][g] +=free(things_of_interest['c_c_H_list'][g])
-                    stored_metrics['hamming_corinc_per_gate'][g] +=free(things_of_interest['c_inc_H_list'][g])
+        # if 'inc_inc_H_list' in things_of_interest:
+        #     for g in range(gates_count):
+        #             stored_metrics['hamming_incinc_per_gate'][g] +=free(things_of_interest['inc_inc_H_list'][g])
+        #             stored_metrics['hamming_corcor_per_gate'][g] +=free(things_of_interest['c_c_H_list'][g])
+        #             stored_metrics['hamming_corinc_per_gate'][g] +=free(things_of_interest['c_inc_H_list'][g])
 
-                    stored_metrics['hamming_incinc_per_gate_std'][g] +=free(things_of_interest['inc_inc_H_list_std'][g])
-                    stored_metrics['hamming_corcor_per_gate_std'][g] +=free(things_of_interest['c_c_H_list_std'][g])
-                    stored_metrics['hamming_corinc_per_gate_std'][g] +=free(things_of_interest['c_inc_H_list_std'][g])
+        #             stored_metrics['hamming_incinc_per_gate_std'][g] +=free(things_of_interest['inc_inc_H_list_std'][g])
+        #             stored_metrics['hamming_corcor_per_gate_std'][g] +=free(things_of_interest['c_c_H_list_std'][g])
+        #             stored_metrics['hamming_corinc_per_gate_std'][g] +=free(things_of_interest['c_inc_H_list_std'][g])
 
         if training_phase == TrainingPhase.CLASSIFIER: # the warmup phase do not have those metrics
             num_exits_per_gate = things_of_interest['num_exits_per_gate']
@@ -86,12 +86,7 @@ def collect_metrics(things_of_interest, gates_count, targets,
             for gate_idx, pred_tuple in correct_number_per_gate_batch.items():
                 stored_metrics['gated_correct_count_per_gate'][gate_idx] += pred_tuple[0]
                 stored_metrics['gated_pred_count_per_gate'][gate_idx] += pred_tuple[1]
-        
-            
-            
-            
-            
-          
+
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
         stored_metrics['final_head_correct_all'] += pred_final_head.eq(targets).sum().item()
