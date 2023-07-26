@@ -413,7 +413,6 @@ else:
             bilevel_batch_count=args.bilevel_batch_count,
             classifier_warmup_periods=classifier_warmup_period)
         stored_metrics_test = test(epoch)
-        if epoch > (start_epoch + args.num_epoch)/2: # online learning
-            scheduler.step()
+        scheduler.step()
 
 mlflow.end_run()
