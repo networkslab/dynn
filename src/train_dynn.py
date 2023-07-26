@@ -31,8 +31,8 @@ parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifa
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.001,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
-parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
-parser.add_argument('--warmup_batch_count',default=500,type=int,help='number of batches for warmup where all classifier are trained')
+parser.add_argument('--num_epoch', default=8, type=int, help='num of epochs')
+parser.add_argument('--warmup_batch_count',default=700,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
@@ -341,14 +341,14 @@ def test(epoch):
                     )
                     break
         # Decide whether to freeze classifiers or not.
-        for idx in range(args.G):
-            classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
-            accuracy_tracker = net.module.accuracy_trackers[idx]
-            if accuracy_tracker.should_freeze(classifier_accuracy):
-                net.module.freeze_intermediate_classifier(idx)
-                print(f"FREEZING CLASSIFIER {idx}")
-            else:
-                accuracy_tracker.insert_acc(classifier_accuracy)
+        # for idx in range(args.G):
+        #     classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
+        #     accuracy_tracker = net.module.accuracy_trackers[idx]
+        #     if accuracy_tracker.should_freeze(classifier_accuracy):
+        #         net.module.freeze_intermediate_classifier(idx)
+        #         print(f"FREEZING CLASSIFIER {idx}")
+        #     else:
+        #         accuracy_tracker.insert_acc(classifier_accuracy)
         if use_mlflow:
             log_dict = log_metrics_mlflow(
                     prefix_logger='test',
