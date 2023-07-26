@@ -494,7 +494,7 @@ class T2T_ViT(nn.Module):
                 return gate_loss, things_of_interest
 
     def weighted_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase, COMPUTE_HAMMING=False):
-        criterion = nn.CrossEntropyLoss(reduction='none')
+        classifier_criterion = nn.CrossEntropyLoss(reduction='none')
         final_head, intermediate_outs, intermediate_codes = self._forward_features(inputs)
         final_logits = self.head(final_head)
         if training_phase == TrainingPhase.CLASSIFIER:
@@ -523,7 +523,7 @@ class T2T_ViT(nn.Module):
                 no_exit_previous_prob = torch.prod(1 - gate_activation_probs, axis=1)[:,None]
                 current_gate_activation_prob = torch.clip(p_exit_at_gate/no_exit_previous_prob, min=0, max=1)
                 gate_activation_probs = torch.cat((gate_activation_probs, current_gate_activation_prob), dim=1)
-                loss_at_gate = criterion(current_logits, targets)
+                loss_at_gate = classifier_criterion(current_logits, targets)
                 loss_per_gate_list.append(loss_at_gate[:, None])
                 if self.gate_selection_mode == GateSelectionMode.PROBABILISTIC:
                     do_exit = torch.bernoulli(current_gate_activation_prob)
@@ -539,9 +539,6 @@ class T2T_ViT(nn.Module):
                 gated_y_logits = gated_y_logits + torch.mul(current_exit, current_logits)
             P = torch.cat(p_exit_at_gate_list, dim = 1)
             L = torch.cat(loss_per_gate_list, dim = 1)
-
-
-
             final_gate_exit = torch.logical_not(past_exits)
             sample_exit_level_map[final_gate_exit.flatten().nonzero()] = len(self.intermediate_heads)
             num_exits_per_gate.append(torch.sum(final_gate_exit))

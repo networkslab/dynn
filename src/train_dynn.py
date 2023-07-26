@@ -44,10 +44,11 @@ parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio b
 parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT',help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
-parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
+parser.add_argument('--use_mlflow',default='True',help='Store the run with mlflow')
+parser.add_argument('--weighted_class_loss', default=True, help='How to compute loss of classifiers')
 args = parser.parse_args()
 
-
+weighted = args.weighted_class_loss != 'False'
 proj_dim = int(args.proj_dim)
 if args.barely_train:
     print(
@@ -59,7 +60,7 @@ if use_mlflow:
     name = "_".join([
         str(a) for a in [
             args.model, args.ce_ic_tradeoff, args.gate,
-            args.gate_training_scheme
+            args.gate_training_scheme, f'{"WEIGHTED" if weighted else "SURR"}'
         ]
     ])
     cfg = vars(args)
@@ -71,6 +72,7 @@ best_acc = 0  # best test accuracy
 start_epoch = 0  # start from epoch 0 or last checkpoint epoch
 path_project = get_path_to_project_root()
 model = args.arch
+
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
@@ -180,9 +182,11 @@ def train(epoch,
             loss, things_of_interest = get_loss(inputs, targets, optimizer,
                                                 net)
         else:
-            loss, things_of_interest = get_weighted_loss(
-                inputs, targets, optimizer, net, training_phase=training_phase)
-
+            if weighted:
+                loss, things_of_interest = get_weighted_loss(
+                    inputs, targets, optimizer, net, training_phase=training_phase)
+            else:
+                loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
         total += targets.size(0)
         loss.backward()
         optimizer.step()
