@@ -9,7 +9,7 @@ T2T-ViT
 import torch
 import torch.nn as nn
 from queue import Queue
-
+import random 
 from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_
@@ -475,6 +475,12 @@ class T2T_ViT(nn.Module):
                 gate_loss = gate_criterion(gate_logits.flatten(), hot_encode_subsequent.double().flatten())
                 # addressing the class imbalance avec classe
                 num_ones = torch.sum(hot_encode_subsequent)
+                # add a check up to make sure we have at least 1 ones. If not, add one at random to avoid nan issue
+                if num_ones < 1:
+                    print('Warning, this batch is pushing everything to the last gate')
+                    hot_encode_subsequent[random.choice(range(hot_encode_subsequent.shape[0])),-1] = 1 # place it at the second last gate for some random point
+                    num_ones = torch.sum(hot_encode_subsequent)
+                    assert num_ones == 1
                 num_zeros = (torch.prod(torch.Tensor(list(hot_encode_subsequent.shape)))) - num_ones
                 zero_to_one_ratio = num_zeros / num_ones
                 ones_loss_multiplier = hot_encode_subsequent.double().flatten() * zero_to_one_ratio # balances ones
