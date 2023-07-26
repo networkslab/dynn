@@ -503,7 +503,7 @@ class T2T_ViT(nn.Module):
             num_exits_per_gate = []
             # prob_exit = torch.zeros_like(targets).to(inputs.device) # B x G
             p_exit_at_gate_list = []
-            prob_gates = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
+            gate_activation_probs = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
             G = torch.zeros((targets.shape[0], 1)).to(inputs.device)
             loss_per_gate_list = []
             gated_y_logits = torch.zeros_like(final_logits) # holds the accumulated predictions in a single tensor
@@ -519,15 +519,15 @@ class T2T_ViT(nn.Module):
                 p_exit_at_gate = torch.max(torch.zeros((targets.shape[0], 1)).to(inputs.device), torch.min(g, 1 - sum_previous_gs))
                 p_exit_at_gate_list.append(p_exit_at_gate)
                 G = torch.cat((G, g), dim=1) # add current g to the G matrix
-                cumul_previous_gates = torch.prod(1 - prob_gates, axis=1)[:,None]
-                current_gate_prob = torch.clip(p_exit_at_gate/cumul_previous_gates, min=0, max=1)
-                prob_gates = torch.cat((prob_gates, current_gate_prob), dim=1)
+                no_exit_previous_prob = torch.prod(1 - gate_activation_probs, axis=1)[:,None]
+                current_gate_activation_prob = torch.clip(p_exit_at_gate/no_exit_previous_prob, min=0, max=1)
+                gate_activation_probs = torch.cat((gate_activation_probs, current_gate_activation_prob), dim=1)
                 loss_at_gate = criterion(current_logits, targets)
                 loss_per_gate_list.append(loss_at_gate[:, None])
                 if self.gate_selection_mode == GateSelectionMode.PROBABILISTIC:
-                    do_exit = torch.bernoulli(current_gate_prob)
+                    do_exit = torch.bernoulli(current_gate_activation_prob)
                 elif self.gate_selection_mode == GateSelectionMode.DETERMINISTIC:
-                    do_exit = current_gate_prob >= 0.5
+                    do_exit = current_gate_activation_prob >= 0.5
                 current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
                 current_exit_index = current_exit.flatten().nonzero()
                 sample_exit_level_map[current_exit_index] = l
