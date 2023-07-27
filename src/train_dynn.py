@@ -169,7 +169,7 @@ else:
     train(args, net, device, train_loader, optimizer, epoch=0,training_phase=TrainingPhase.WARMUP,
           bilevel_batch_count=None, warmup_batch_count=args.warmup_batch_count)
     for epoch in range(1, args.num_epoch):
-        stored_metrics_train = train(args, net, device, train_loader, optimizer, epoch=0,training_phase=TrainingPhase.CLASSIFIER,
+        stored_metrics_train = train(args, net, device, train_loader, optimizer, epoch=epoch,training_phase=TrainingPhase.CLASSIFIER,
           bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
 
         stored_metrics_test = test(best_acc, args, net, device, test_loader, optimizer, epoch, freeze_classifier_with_val=False)
