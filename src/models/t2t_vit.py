@@ -666,14 +666,7 @@ class Boosted_T2T_ViT(T2T_ViT):
             self.ensemble_reweight = self.ensemble_reweight * n_blocks
         elif len(self.ensemble_reweight) == 2:
             self.ensemble_reweight = list(np.linspace(self.ensemble_reweight[0], self.ensemble_reweight[1], n_blocks))
-    def forward(self, x, stage=None):
-        outs = self.boosted_forward(x)
-        preds = [0]
-        for i in range(len(outs)):
-            pred = outs[i] + preds[-1] * self.ensemble_reweight[i]
-            preds.append(pred)
-        preds = preds[1:]
-        return preds
+   
 
     def boosted_forward(self, x): # Equivalent of forward in msdnet with gradient rescaling.
         res = []
@@ -696,8 +689,8 @@ class Boosted_T2T_ViT(T2T_ViT):
             x[-1] = gradient_rescale(x[-1], (nBlocks - blk_idx - 1))
             res.append(pred)
         return res
-
-    def forward_all(self, x, stage): # from forward_all in dynamic net which itself calls forward (boosted_forward in our case)
+    
+    def forward_all(self, x, stage=None): # from forward_all in dynamic net which itself calls forward (boosted_forward in our case)
         """Forward the model until block `stage` and get a list of ensemble predictions
         """
         nBlocks = len(self.blocks)

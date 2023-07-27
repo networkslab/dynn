@@ -9,7 +9,7 @@ criterion = nn.CrossEntropyLoss()
 COMPUTE_HAMMING = False
 
 
-def get_loss(inputs, targets, optimizer, net):
+def get_warmup_loss(inputs, targets, optimizer, net):
 
     optimizer.zero_grad()
     final_logits, intermediate_logits, intermediate_codes = net(inputs)

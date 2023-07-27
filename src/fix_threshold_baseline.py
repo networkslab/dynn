@@ -19,7 +19,7 @@ import argparse
 import mlflow
 
 from collect_metric_iter import collect_metrics, evaluate_with_fixed_gating, get_empty_storage_metrics
-from learning_helper import get_loss, get_dumb_loss, get_surrogate_loss
+from learning_helper import get_warmup_loss, get_dumb_loss, get_surrogate_loss
 from log_helper import log_metrics_mlflow
 
 from models import *
@@ -236,7 +236,7 @@ def train(epoch):
     for batch_idx, (inputs, targets) in enumerate(trainloader):
         inputs, targets = inputs.to(device), targets.to(device)
        
-        loss, intermediate_logits, outputs_logits  = get_loss(inputs, targets, optimizer, net) 
+        loss, intermediate_logits, outputs_logits  = get_warmup_loss(inputs, targets, optimizer, net) 
         loss.backward()
         optimizer.step()
         epoch_loss += loss.item()
@@ -282,7 +282,7 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            loss, outputs_logits, intermediate_outputs = get_loss(
+            loss, outputs_logits, intermediate_outputs = get_warmup_loss(
                 inputs, targets, optimizer, net)
             test_loss += loss.item()
             stored_per_x, stored_metrics, correct, total = collect_metrics(
@@ -337,7 +337,7 @@ def test_with_gating(epoch, thresholds, name_threhold, thresh_type):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(testloader):
             inputs, targets = inputs.to(device), targets.to(device)
-            loss, outputs_logits, intermediate_outputs = get_loss(
+            loss, outputs_logits, intermediate_outputs = get_warmup_loss(
                 inputs, targets, optimizer, net)
             test_loss += loss.item()
             stored_metrics = evaluate_with_fixed_gating(thresholds, outputs_logits,

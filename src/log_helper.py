@@ -2,7 +2,27 @@ import numpy as np
 import mlflow
 from data_loading.data_loader_helper import get_abs_path
 
-def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_metrics, total_classifier, batch):
+def get_display(key, cum_metric):
+    if 'correct' in key:
+            return  100*np.mean(cum_metric)
+    else:
+        return np.mean(cum_metric)
+def log_aggregate_metrics_mlflow(prefix_logger, metrics_dict, gates_count):
+    log_dict = {}
+    for metric_key, val in metrics_dict.items():
+        cumul_metric, total = val
+        if type(cumul_metric) is list: 
+            if len(cumul_metric) == gates_count and 'per_gate' in metric_key:# if the length is the number of gates we want to see all of them
+                for g, cumul_metric_per_gate in enumerate(cumul_metric):
+                    log_dict[prefix_logger+'/'+metric_key+ str(g)]  = get_display(metric_key, cumul_metric_per_gate)/total
+            else:
+                log_dict[prefix_logger+'/'+metric_key]  = get_display(metric_key, np.mean(cumul_metric))/total
+        else:
+            log_dict[prefix_logger+'/'+metric_key] = get_display(metric_key, cumul_metric)/total
+    return log_dict
+
+
+# def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_metrics, total_classifier, batch):
     
     
     cheating_acc = 100. * stored_metrics['cheating_correct'] / total_classifier
@@ -52,16 +72,10 @@ def log_metrics_mlflow(prefix_logger, gated_acc, loss, G, stored_per_x, stored_m
 
     return log_dict
 
-def compute_gated_accuracy(stored_metrics, gate_idx):
-    pred_count = stored_metrics['gated_pred_count_per_gate'][gate_idx]
-    correct_count = stored_metrics['gated_correct_count_per_gate'][gate_idx]
-    if pred_count == 0:
-        return 0
-    return correct_count / pred_count * 100
 
-def setup_mlflow(run_name: str, cfg):
+def setup_mlflow(run_name: str, cfg, experiment_name):
     print(run_name)
-    project = 'rerun_cifar'
+    project = experiment_name
     mlruns_path = get_abs_path(["mlruns"])
     mlflow.set_tracking_uri(mlruns_path)
     mlflow.set_experiment(project)
