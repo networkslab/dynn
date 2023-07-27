@@ -6,7 +6,7 @@ import mlflow
 from timm.models import *
 from timm.models import create_model
 from collect_metric_iter import aggregate_metrics, process_things
-from learning_helper import get_warmup_loss, get_surrogate_loss, get_weighted_loss
+from learning_helper import get_warmup_loss, get_surrogate_loss
 from log_helper import log_aggregate_metrics_mlflow
 from utils import  progress_bar
 from early_exit_utils import switch_training_phase
@@ -50,11 +50,7 @@ def train(args, net, device, train_loader, optimizer, epoch,training_phase,
                     training_phase = switch_training_phase(training_phase)
 
     
-            if args.weighted_class_loss:
-                loss, things_of_interest = get_weighted_loss(
-                    inputs, targets, optimizer, net, training_phase=training_phase)
-            else:
-                loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase)
+            loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase, weighted=args.weighted_class_loss)
         loss.backward()
         optimizer.step()
         

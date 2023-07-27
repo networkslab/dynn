@@ -49,7 +49,6 @@ parser.add_argument('--weighted_class_loss', default=True, help='How to compute 
 #parser.add_argument('--ensemble_pred', default=True, help='Should we average over the predictions of all previous gates')
 args = parser.parse_args()
 
-args.barely_train = True
 fix_the_seed(seed=322)
 
 if args.barely_train:
