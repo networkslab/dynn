@@ -13,9 +13,9 @@ from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloade
 from learning_helper import freeze_backbone as freeze_backbone_helper
 from log_helper import setup_mlflow
 from models.custom_modules.gate import GateType
-from our_train_helper import train, test, warmup_train
+from our_train_helper import train, test
 from utils import fix_the_seed
-from models.t2t_vit import GateTrainingScheme, GateSelectionMode, Boosted_T2T_ViT
+from models.t2t_vit import GateTrainingScheme, GateSelectionMode, Boosted_T2T_ViT, TrainingPhase
 
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
@@ -31,7 +31,7 @@ parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=1.5,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=8, type=int, help='num of epochs')
-parser.add_argument('--warmup_batch_count',default=20,type=int,help='number of batches for warmup where all classifier are trained')
+parser.add_argument('--warmup_batch_count',default=500,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
@@ -49,7 +49,7 @@ parser.add_argument('--weighted_class_loss', default=True, help='How to compute 
 #parser.add_argument('--ensemble_pred', default=True, help='Should we average over the predictions of all previous gates')
 args = parser.parse_args()
 
-
+args.barely_train = True
 fix_the_seed(seed=322)
 
 if args.barely_train:
@@ -165,11 +165,14 @@ if isinstance(net.module, Boosted_T2T_ViT):
     torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
 else:
     
-    warmup_train(args, net, device, train_loader, optimizer, epoch=0,warmup_batch_count=args.warmup_batch_count)
+    # start with warm up for the first epoch
+    
+    train(args, net, device, train_loader, optimizer, epoch=0,training_phase=TrainingPhase.WARMUP,
+          bilevel_batch_count=None, warmup_batch_count=args.warmup_batch_count)
     for epoch in range(1, args.num_epoch):
-        stored_metrics_train = train(args, net, device, train_loader, optimizer, epoch,
-          bilevel_opt=True,
-          bilevel_batch_count=args.bilevel_batch_count)
+        stored_metrics_train = train(args, net, device, train_loader, optimizer, epoch=0,training_phase=TrainingPhase.CLASSIFIER,
+          bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+
         stored_metrics_test = test(best_acc, args, net, device, test_loader, optimizer, epoch, freeze_classifier_with_val=False)
         scheduler.step()
 

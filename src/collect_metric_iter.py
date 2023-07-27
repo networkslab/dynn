@@ -72,13 +72,21 @@ def aggregate_metrics(metrics_to_aggregate_dict, metrics_dict, gates_count):
                 else: # we just concat
                     aggregated_metric = metrics_dict[metric_key][0] + metric
             elif type(metric) is dict:
-                 pass # TODO deall with 
+                if len(metric) == gates_count and 'gate' in metric_key: # we maintain 
+                    aggregated_metric= {k: metric.get(k, 0) + metrics_dict[metric_key][0].get(k, 0) for k in set(metric) | set(metrics_dict[metric_key][0])}
+                    
+                else: # we just concat
+                    print('Warning, I dont know how to aggregate',metric)
             else: 
                     aggregated_metric = metrics_dict[metric_key][0] + metric
             metrics_dict[metric_key] = (aggregated_metric, total)
     return metrics_dict
 
 def process_things(things_of_interest, gates_count, targets, batch_size):
+    """
+    This function transforms the model outputs to various metrics. The metrics have the format (count, batch_size) to be aggregated later with other metrics.
+    """
+    
     metrics_to_aggregate_dict = {} # each entry has the format = (value, batch_size)
     if  'final_logits' in    things_of_interest: 
         final_y_logits = things_of_interest['final_logits']
@@ -126,8 +134,12 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
             metrics_to_aggregate_dict['ece_per_gate'][0][g] = cal
         correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
         metrics_to_aggregate_dict['cheating_correct'] = (correct_class_cheating.sum().item(), batch_size)
-        # TODO
+        # TODO the ensembling
 
+    if 'gated_y_logits' in things_of_interest:
+        gated_y_logits = things_of_interest['gated_y_logits']
+        _, predicted = gated_y_logits.max(1)
+        metrics_to_aggregate_dict['gated_correct_count'] = (predicted.eq(targets).sum().item(), batch_size)
 
     if 'num_exits_per_gate' in things_of_interest:
         num_exits_per_gate = things_of_interest['num_exits_per_gate']
@@ -149,24 +161,13 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
             metrics_to_aggregate_dict['gated_correct_count_per_gate'][0][g]= pred_tuple[0]
             metrics_to_aggregate_dict['gated_pred_count_per_gate'][0][g] = pred_tuple[1]
 
-    
+    # GATE associated metrics
     if 'exit_count_optimal_gate' in things_of_interest:
         exit_count_optimal_gate = things_of_interest['exit_count_optimal_gate']
         correct_exit_count = things_of_interest['correct_exit_count']
         metrics_to_aggregate_dict['exit_count_optimal_gate'] = (exit_count_optimal_gate, batch_size)
-        metrics_to_aggregate_dict['correct_exit_count'] = (correct_exit_count, batch_size)
+        metrics_to_aggregate_dict['correct_exit_count'] = (correct_exit_count, batch_size*(gates_count+1)) # the correct count is over all gates
     return metrics_to_aggregate_dict
-
-
-
-    # elif training_phase == TrainingPhase.GATE: # metrics for gate training
-    #     exit_count_optimal_gate = things_of_interest['exit_count_optimal_gate']
-    #     accumulator = stored_metrics['exit_count_optimal_gate']
-    #     correct_exit_count_last_batch = things_of_interest['correct_exit_count']
-    #     stored_metrics['correct_exit_count'] += correct_exit_count_last_batch 
-    #     combined_counts = {k: exit_count_optimal_gate.get(k, 0) + accumulator.get(k, 0) for k in set(exit_count_optimal_gate) | set(accumulator)}
-    #     stored_metrics['exit_count_optimal_gate'] = combined_counts
-    # return stored_per_x, stored_metrics
 
 def compute_correct_number_per_gate(number_of_gates: int,
                                     sample_exit_level_map: torch.Tensor,
