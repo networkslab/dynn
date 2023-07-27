@@ -109,7 +109,8 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
         shape_of_correct = pred_final_head.eq(targets).shape
         correct_class_cheating = torch.full(shape_of_correct,False).to(pred_final_head.device)
         
-        entries = ['correct_per_gate', 'correct_cheating_per_gate','list_correct_per_gate','margins_per_gate','p_max_per_gate','entropy_per_gate','pow_entropy_per_gate','ece_per_gate']
+        entries = ['ens_correct_per_gate','correct_per_gate', 'correct_cheating_per_gate','list_correct_per_gate','margins_per_gate',
+        'p_max_per_gate','entropy_per_gate','pow_entropy_per_gate','ece_per_gate']
         for entry in entries:
             metrics_to_aggregate_dict[entry] = ([0 for _ in range(gates_count)], batch_size)
         for g in range(gates_count):
@@ -118,7 +119,13 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
             _, predicted_inter = intermediate_logits[g].max(1)
             correct_gate = predicted_inter.eq(targets)
             metrics_to_aggregate_dict['correct_per_gate'][0][g] = correct_gate.sum().item()
-            
+            # ensembling
+            ens_logits = torch.mean(torch.cat([intermediate_logits[i][:,:,None] for i in range(g+1)], dim=2), dim=2)
+            _, ens_predicted_inter = ens_logits.max(1)
+            ens_correct_gate = ens_predicted_inter.eq(targets)
+            metrics_to_aggregate_dict['ens_correct_per_gate'][0][g] = ens_correct_gate.sum().item()
+
+
             # keeping all the corrects we have from previous gates
             correct_class_cheating += correct_gate
             metrics_to_aggregate_dict['correct_cheating_per_gate'][0][
