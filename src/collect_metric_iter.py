@@ -71,6 +71,8 @@ def aggregate_metrics(metrics_to_aggregate_dict, metrics_dict, gates_count):
                         aggregated_metric.append(metrics_dict[metric_key][0][g] + per_gate_metric)
                 else: # we just concat
                     aggregated_metric = metrics_dict[metric_key][0] + metric
+            elif type(metric) is dict:
+                 pass # TODO deall with 
             else: 
                     aggregated_metric = metrics_dict[metric_key][0] + metric
             metrics_dict[metric_key] = (aggregated_metric, total)
@@ -157,87 +159,14 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
 
 
 
-# def acc_with_perfect_gating():
-
-# def collect_metrics(things_of_interest, gates_count, targets,
-#                     device, stored_per_x, stored_metrics, training_phase):
-    if training_phase == TrainingPhase.CLASSIFIER or training_phase == TrainingPhase.WARMUP:
-        intermediate_logits = things_of_interest['intermediate_logits']
-        # if 'inc_inc_H_list' in things_of_interest:
-        #     for g in range(gates_count):
-        #             stored_metrics['hamming_incinc_per_gate'][g] +=free(things_of_interest['inc_inc_H_list'][g])
-        #             stored_metrics['hamming_corcor_per_gate'][g] +=free(things_of_interest['c_c_H_list'][g])
-        #             stored_metrics['hamming_corinc_per_gate'][g] +=free(things_of_interest['c_inc_H_list'][g])
-
-        #             stored_metrics['hamming_incinc_per_gate_std'][g] +=free(things_of_interest['inc_inc_H_list_std'][g])
-        #             stored_metrics['hamming_corcor_per_gate_std'][g] +=free(things_of_interest['c_c_H_list_std'][g])
-        #             stored_metrics['hamming_corinc_per_gate_std'][g] +=free(things_of_interest['c_inc_H_list_std'][g])
-
-        if training_phase == TrainingPhase.CLASSIFIER: # the warmup phase do not have those metrics
-            num_exits_per_gate = things_of_interest['num_exits_per_gate']
-            gated_y_logits = things_of_interest['gated_y_logits']
-            _, predicted = gated_y_logits.max(1)
-            total_cost = compute_cost(num_exits_per_gate, gates_count)
-            stored_metrics['total_cost'] += total_cost
-
-            correct_number_per_gate_batch = compute_correct_number_per_gate(
-                gates_count,
-                things_of_interest['sample_exit_level_map'],
-                targets,
-                predicted
-            )
-            for gate_idx, pred_tuple in correct_number_per_gate_batch.items():
-                stored_metrics['gated_correct_count_per_gate'][gate_idx] += pred_tuple[0]
-                stored_metrics['gated_pred_count_per_gate'][gate_idx] += pred_tuple[1]
-
-        final_y_logits = things_of_interest['final_logits']
-        _, pred_final_head = final_y_logits.max(1)
-        stored_metrics['final_head_correct_all'] += pred_final_head.eq(targets).sum().item()
-
-        # uncertainty related stats to be aggregated
-        p_max, entropy, ece, margins, entropy_pow = compute_detached_uncertainty_metrics(final_y_logits, targets)
-        stored_per_x['final_p_max'] += p_max
-        stored_per_x['final_entropy'] += entropy
-        stored_per_x['final_pow_entropy'] += entropy_pow
-        stored_per_x['final_margins'] += margins
-        stored_metrics['final_ece'] += ece
-
-        # the cheating accuracy
-        shape_of_correct = pred_final_head.eq(targets).shape
-        correct_class_cheating = torch.full(shape_of_correct,False).to(device)
-        
-
-        for g in range(gates_count):
-
-            # normal accuracy
-            _, predicted_inter = intermediate_logits[g].max(1)
-            correct_gate = predicted_inter.eq(targets)
-            stored_metrics['correct_per_gate'][g] += correct_gate.sum().item()
-            
-            # keeping all the corrects we have from previous gates
-            correct_class_cheating += correct_gate
-            stored_metrics['correct_cheating_per_gate'][
-                g] += correct_class_cheating.sum().item() # getting all the corrects we can
-
-            p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(
-                intermediate_logits[g], targets)
-            stored_per_x['list_correct_per_gate'][g] += list(free(correct_gate))
-            stored_per_x['margins_per_gate'][g] += margins
-            stored_per_x['p_max_per_gate'][g] += p_max
-            stored_per_x['entropy_per_gate'][g] += entropy
-            stored_per_x['pow_entropy_per_gate'][g] += entropy_pow
-            stored_metrics['ece_per_gate'][g] += cal
-
-        correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
-        stored_metrics['cheating_correct'] += correct_class_cheating.sum().item()
-    elif training_phase == TrainingPhase.GATE: # metrics for gate training
-        exit_count_optimal_gate = things_of_interest['exit_count_optimal_gate']
-        accumulator = stored_metrics['exit_count_optimal_gate']
-        correct_exit_count_last_batch = things_of_interest['correct_exit_count']
-        stored_metrics['correct_exit_count'] += correct_exit_count_last_batch 
-        combined_counts = {k: exit_count_optimal_gate.get(k, 0) + accumulator.get(k, 0) for k in set(exit_count_optimal_gate) | set(accumulator)}
-        stored_metrics['exit_count_optimal_gate'] = combined_counts
-    return stored_per_x, stored_metrics
+    # elif training_phase == TrainingPhase.GATE: # metrics for gate training
+    #     exit_count_optimal_gate = things_of_interest['exit_count_optimal_gate']
+    #     accumulator = stored_metrics['exit_count_optimal_gate']
+    #     correct_exit_count_last_batch = things_of_interest['correct_exit_count']
+    #     stored_metrics['correct_exit_count'] += correct_exit_count_last_batch 
+    #     combined_counts = {k: exit_count_optimal_gate.get(k, 0) + accumulator.get(k, 0) for k in set(exit_count_optimal_gate) | set(accumulator)}
+    #     stored_metrics['exit_count_optimal_gate'] = combined_counts
+    # return stored_per_x, stored_metrics
 
 def compute_correct_number_per_gate(number_of_gates: int,
                                     sample_exit_level_map: torch.Tensor,
@@ -304,43 +233,4 @@ def evaluate_with_fixed_gating(thresholds, outputs_logits, intermediate_outputs,
     #stored_metrics['cost_per_gate'] += cost_per_gate
     stored_metrics['total_cost'] += total_cost
     return stored_metrics
-
-
-
-# def get_empty_storage_metrics(num_gates):
-#     stored_per_x = {
-#         "entropy_per_gate": [[] for _ in range(num_gates)],
-#         "pow_entropy_per_gate": [[] for _ in range(num_gates)],
-#         "p_max_per_gate": [[] for _ in range(num_gates)],
-#         'list_correct_per_gate': [[] for _ in range(num_gates)],
-#         'margins_per_gate' : [[] for _ in range(num_gates)],
-#         'final_entropy': [],
-#         'final_pow_entropy': [],
-#         'final_p_max': [],
-#         'final_margins': []
-#     }
-#     stored_metrics = {
-#         'gated_acc': 0, # using early exiting (computed based on where a point exits)
-#         'final_ece': 0,
-#         'gated_correct': 0,
-#         'final_head_correct_all': 0, # computed on all points including the ones that early exited before
-#         'total_cost': 0,
-#         'cheating_correct': 0,
-#         'num_per_gate': [0 for _ in range(num_gates)],
-#         'hamming_incinc_per_gate': [0 for _ in range(num_gates)],
-#         'hamming_corcor_per_gate': [0 for _ in range(num_gates)],
-#         'hamming_corinc_per_gate': [0 for _ in range(num_gates)],
-#         'hamming_incinc_per_gate_std': [0 for _ in range(num_gates)],
-#         'hamming_corcor_per_gate_std': [0 for _ in range(num_gates)],
-#         'hamming_corinc_per_gate_std': [0 for _ in range(num_gates)],
-#         'cost_per_gate': [0 for _ in range(num_gates)],
-#         'ece_per_gate': [0 for _ in range(num_gates)],
-#         'correct_per_gate': [0 for _ in range(num_gates)],
-#         'correct_cheating_per_gate': [0 for _ in range(num_gates)],
-#         'gated_correct_count_per_gate': [0 for _ in range(num_gates)],
-#         'gated_pred_count_per_gate': [0 for _ in range(num_gates)],
-#         'exit_count_optimal_gate': dict.fromkeys(range(num_gates), 0),
-#         'correct_exit_count': 0
-#     }
-#     return stored_per_x, stored_metrics
 
