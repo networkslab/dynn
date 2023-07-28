@@ -27,7 +27,7 @@ def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
         progress_bar(step, total, 'Gate Loss: %.3f ' % (loss)) 
 
 
-def train(args, net, device, train_loader, optimizer, epoch,training_phase,
+def train_single_epoch(args, net, device, train_loader, optimizer, epoch,training_phase,
           bilevel_batch_count=20,
           warmup_batch_count=0):
     print('\nEpoch: %d' % epoch)
@@ -48,8 +48,6 @@ def train(args, net, device, train_loader, optimizer, epoch,training_phase,
                     print("All classifiers are frozen, setting training phase to gate")
                 else:
                     training_phase = switch_training_phase(training_phase)
-
-    
             loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase, weighted=args.weighted_class_loss)
         loss.backward()
         optimizer.step()

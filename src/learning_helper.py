@@ -3,14 +3,33 @@ from metrics_utils import check_hamming_vs_acc
 from models.t2t_vit import TrainingPhase, Boosted_T2T_ViT, GateSelectionMode
 from torch import nn
 import numpy as np
+from models.classifier_training_helper import LossContributionMode, ClassifierTrainingHelper
 
 criterion = nn.CrossEntropyLoss()
 
 COMPUTE_HAMMING = False
 
+class LearningHelper:
+    def __init__(self, net, optimizer, args) -> None:
+        self.net = net
+        self.optimizer = optimizer
+        self._init_classifier_training_helper(args)
 
+    def _init_classifier_training_helper(self, args) -> None:
+        gate_selection_mode = args.gate_selection_mode
+        loss_contribution_mode = LossContributionMode.WEIGHTED if args.weighted_class_loss else LossContributionMode.SINGLE
+        self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, loss_contribution_mode)
+
+    def get_surrogate_loss(self, inputs, targets, training_phase=None):
+        if self.net.training:
+            self.optimizer.zero_grad()
+            loss = None
+            if training_phase == TrainingPhase.CLASSIFIER:
+                return self.classifier_training_helper.get_loss(inputs, targets)
+            elif training_phase == TrainingPhase.GATE:
+                pass
+            
 def get_warmup_loss(inputs, targets, optimizer, net):
-
     optimizer.zero_grad()
     final_logits, intermediate_logits, intermediate_codes = net(inputs)
     loss = criterion(
@@ -34,19 +53,6 @@ def get_warmup_loss(inputs, targets, optimizer, net):
             'c_inc_H_list_std': c_inc_H_list_std
         }
     return loss, things_of_interest
-
-
-def get_dumb_loss(inputs, targets, optimizer, net):
-    optimizer.zero_grad()
-    y_pred, ic_cost, intermediate_outputs = net.module.forward_brute_force(
-        inputs, normalize=True)
-    loss_performance = criterion(y_pred, targets)
-
-    loss = loss_performance + net.module.cost_perf_tradeoff * torch.sum(
-        ic_cost)
-    return loss, y_pred, intermediate_outputs
-
-
 
 
 def get_surrogate_loss(inputs, targets, optimizer, net, training_phase=None, weighted=False):

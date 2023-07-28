@@ -277,7 +277,7 @@ class T2T_ViT(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def _forward_features(self, x):
+    def forward_features(self, x):
         B = x.shape[0]
         x = self.tokens_to_token(x)
 
@@ -285,19 +285,20 @@ class T2T_ViT(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = x + self.pos_embed
         x = self.pos_drop(x)
-        intermediate_outs = []
+        intermediate_z = [] # the embedding fed into the agumenting classifiers
         intermediate_codes = []
         for blk_idx, blk in enumerate(self.blocks):
             x, act_code = blk.forward_get_code(x)
             if hasattr(self, 'intermediate_head_positions') and blk_idx in self.intermediate_head_positions:
-                intermediate_outs.append(x)
+                intermediate_z.append(x)
                 intermediate_codes.append(act_code)
-        intermediate_outs = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_outs))
+        intermediate_z = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_z))
         x = self.norm(x)
-        return x[:, 0], intermediate_outs, intermediate_codes
+        return x[:, 0], intermediate_z, intermediate_codes
 
+    # Similar to forward_features but passes the intermediate z's through the augmenting classifiers
     def forward(self, x):
-        x, intermediate_outs, intermediate_codes = self._forward_features(x)
+        x, intermediate_outs, intermediate_codes = self.forward_features(x)
         intermediate_logits = []
         if intermediate_outs: # what is this?
             for head_idx, intermediate_head in enumerate(self.intermediate_heads):
@@ -309,7 +310,7 @@ class T2T_ViT(nn.Module):
     
     # this is only to be used for training
     def forward_brute_force(self, inputs, normalize = False):
-        x, intermediate_outs,intermediate_codes = self._forward_features(inputs)
+        x, intermediate_outs,intermediate_codes = self.forward_features(inputs)
         intermediate_logits = []
         all_y = []
         total_inference_cost = []
@@ -343,7 +344,7 @@ class T2T_ViT(nn.Module):
 
 
     def surrogate_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase, COMPUTE_HAMMING=False):
-        final_head, intermediate_outs, intermediate_codes = self._forward_features(inputs)
+        final_head, intermediate_outs, intermediate_codes = self.forward_features(inputs)
         final_logits = self.head(final_head)
         if training_phase == TrainingPhase.CLASSIFIER:
             # Gates are frozen, find first exit gate
@@ -495,7 +496,7 @@ class T2T_ViT(nn.Module):
 
     def weighted_forward(self, inputs: torch.Tensor, targets: torch.tensor, training_phase: TrainingPhase, COMPUTE_HAMMING=False):
         classifier_criterion = nn.CrossEntropyLoss(reduction='none')
-        final_head, intermediate_outs, intermediate_codes = self._forward_features(inputs)
+        final_head, intermediate_outs, intermediate_codes = self.forward_features(inputs)
         final_logits = self.head(final_head)
         if training_phase == TrainingPhase.CLASSIFIER:
             # Gates are frozen, find first exit gate
@@ -512,7 +513,6 @@ class T2T_ViT(nn.Module):
             for l, intermediate_head in enumerate(self.intermediate_heads):
                 current_logits = intermediate_head(intermediate_outs[l])
                 intermediate_logits.append(current_logits)
-                # if self.direct_exit_prob_param:
                 with torch.no_grad():
                     exit_gate_logit = self.get_gate_prediction(l, current_logits, intermediate_codes)
                 g = torch.nn.functional.sigmoid(exit_gate_logit) # g(l)
