@@ -3,100 +3,68 @@ from metrics_utils import check_hamming_vs_acc
 from models.t2t_vit import TrainingPhase, Boosted_T2T_ViT, GateSelectionMode
 from torch import nn
 import numpy as np
+from models.classifier_training_helper import LossContributionMode, ClassifierTrainingHelper
+from models.gate_training_helper import GateTrainingScheme, GateTrainingHelper
 
 criterion = nn.CrossEntropyLoss()
 
 COMPUTE_HAMMING = False
 
+class LearningHelper:
+    def __init__(self, net, optimizer, args) -> None:
+        self.net = net
+        self.optimizer = optimizer
+        self._init_classifier_training_helper(args)
+        self._init_gate_training_helper(args)
 
-def get_loss(inputs, targets, optimizer, net):
+    def _init_classifier_training_helper(self, args) -> None:
+        gate_selection_mode = args.gate_selection_mode
+        loss_contribution_mode = LossContributionMode.WEIGHTED if args.weighted_class_loss else LossContributionMode.SINGLE
+        self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, loss_contribution_mode)
+    
+    def _init_gate_training_helper(self, args) -> None:
+        gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
+        self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme)
 
-    optimizer.zero_grad()
-    final_logits, intermediate_logits, intermediate_codes = net(inputs)
-    loss = criterion(
-        final_logits,
-        targets)  # the grad_fn of this loss should be None if frozen
-    for intermediate_logit in intermediate_logits:
-        intermediate_loss = criterion(intermediate_logit, targets)
-        loss += intermediate_loss
-    things_of_interest = {
-        'intermediate_logits': intermediate_logits,
-        'final_logits': final_logits}
-    if COMPUTE_HAMMING:
-        inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(
-            intermediate_logits, intermediate_codes, targets)
-        things_of_interest = things_of_interest| {
-            'inc_inc_H_list': inc_inc_H_list,
-            'c_c_H_list': c_c_H_list,
-            'c_inc_H_list': c_inc_H_list,
-            'inc_inc_H_list_std': inc_inc_H_list_std,
-            'c_c_H_list_std': c_c_H_list_std,
-            'c_inc_H_list_std': c_inc_H_list_std
-        }
-    return loss, things_of_interest
-
-
-def get_dumb_loss(inputs, targets, optimizer, net):
-    optimizer.zero_grad()
-    y_pred, ic_cost, intermediate_outputs = net.module.forward_brute_force(
-        inputs, normalize=True)
-    loss_performance = criterion(y_pred, targets)
-
-    loss = loss_performance + net.module.cost_perf_tradeoff * torch.sum(
-        ic_cost)
-    return loss, y_pred, intermediate_outputs
-
-
-def get_surrogate_loss(inputs, targets, optimizer, net, training_phase=None):
-    if net.training:
-        optimizer.zero_grad()
-        loss = None
-        # TODO Move training phase enum to this file.
-        if training_phase == TrainingPhase.CLASSIFIER:
-            gated_y_logits, things_of_interest = net.module.surrogate_forward(
-                inputs, targets, training_phase=training_phase)
-            loss = criterion(gated_y_logits, targets)
-        elif training_phase == TrainingPhase.GATE:
-            loss, things_of_interest = net.module.surrogate_forward(
-                inputs, targets, training_phase=training_phase)
-
-    else:
-        gated_y_logits, things_of_interest = net.module.surrogate_forward(
-            inputs, targets, training_phase=TrainingPhase.CLASSIFIER)
-        classifier_loss = criterion(gated_y_logits, targets)
-        things_of_interest['gated_y_logits'] = gated_y_logits
-        gate_loss, things_of_interest_gate = net.module.surrogate_forward(
-            inputs, targets, training_phase=TrainingPhase.GATE)
-        loss = (gate_loss + classifier_loss) / 2
-        things_of_interest.update(things_of_interest_gate)
-    return loss, things_of_interest
-
-def get_weighted_loss(inputs, targets, optimizer, net, training_phase=None):
-    if net.training:
-        optimizer.zero_grad()
-        loss = None
-        # TODO Move training phase enum to this file.
-        if training_phase == TrainingPhase.CLASSIFIER:
-            P, L, things_of_interest = net.module.weighted_forward(
-                inputs, targets, training_phase=training_phase)
-            loss_per_point = torch.sum(L, dim=1) # we want to maintain this
-            weighted_loss = P * L
-            ratio = (loss_per_point/torch.sum(weighted_loss, dim=1))[:,None]
-            loss = torch.mean(weighted_loss * ratio)  
-        elif training_phase == TrainingPhase.GATE:
-            loss, things_of_interest = net.module.surrogate_forward(
-                inputs, targets, training_phase=training_phase)
-
-    else:
-        gated_y_logits, things_of_interest = net.module.surrogate_forward(
-            inputs, targets, training_phase=TrainingPhase.CLASSIFIER)
-        classifier_loss = criterion(gated_y_logits, targets)
-        things_of_interest['gated_y_logits'] = gated_y_logits
-        gate_loss, things_of_interest_gate = net.module.surrogate_forward(
-            inputs, targets, training_phase=TrainingPhase.GATE)
-        loss = (gate_loss + classifier_loss) / 2
-        things_of_interest.update(things_of_interest_gate)
-    return loss, things_of_interest
+    def get_surrogate_loss(self, inputs, targets, training_phase=None):
+        if self.net.training:
+            self.optimizer.zero_grad()
+            if training_phase == TrainingPhase.CLASSIFIER:
+                return self.classifier_training_helper.get_loss(inputs, targets)
+            elif training_phase == TrainingPhase.GATE:
+                return self.gate_training_helper.get_loss(inputs, targets)
+        else:
+            classifier_loss, things_of_interest = self.classifier_training_helper.get_loss(inputs, targets)
+            gate_loss, things_of_interest_gate = self.gate_training_helper.get_loss(inputs, targets)
+            loss = (gate_loss + classifier_loss) / 2
+            things_of_interest.update(things_of_interest_gate)
+            return loss, things_of_interest
+        
+    def get_warmup_loss(self, inputs, targets):
+        self.optimizer.zero_grad()
+        criterion = nn.CrossEntropyLoss()
+        final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
+        loss = criterion(
+            final_logits,
+            targets)  # the grad_fn of this loss should be None if frozen
+        for intermediate_logit in intermediate_logits:
+            intermediate_loss = criterion(intermediate_logit, targets)
+            loss += intermediate_loss
+        things_of_interest = {
+            'intermediate_logits': intermediate_logits,
+            'final_logits': final_logits}
+        if COMPUTE_HAMMING:
+            inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(
+                intermediate_logits, intermediate_codes, targets)
+            things_of_interest = things_of_interest| {
+                'inc_inc_H_list': inc_inc_H_list,
+                'c_c_H_list': c_c_H_list,
+                'c_inc_H_list': c_inc_H_list,
+                'inc_inc_H_list_std': inc_inc_H_list_std,
+                'c_c_H_list_std': c_c_H_list_std,
+                'c_inc_H_list_std': c_inc_H_list_std
+            }
+        return loss, things_of_interest
 
 def freeze_backbone(network, excluded_submodules: list[str]):
     model_parameters = filter(lambda p: p.requires_grad, network.parameters())

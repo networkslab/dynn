@@ -3,12 +3,13 @@
 .vscode/
 mlruns/
 data/
-
+*.pth
+*.zip
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-
+*.txt
 # C extensions
 *.so
 
