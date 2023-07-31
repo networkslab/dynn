@@ -6,7 +6,7 @@ import mlflow
 from timm.models import *
 from timm.models import create_model
 from collect_metric_iter import aggregate_metrics, process_things
-from learning_helper import get_warmup_loss, get_surrogate_loss
+from learning_helper import LearningHelper
 from log_helper import log_aggregate_metrics_mlflow
 from utils import  progress_bar
 from early_exit_utils import switch_training_phase
@@ -26,12 +26,11 @@ def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
     elif training_phase == TrainingPhase.GATE:
         progress_bar(step, total, 'Gate Loss: %.3f ' % (loss)) 
 
-
-def train(args, net, device, train_loader, optimizer, epoch,training_phase,
+def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch,training_phase,
           bilevel_batch_count=20,
           warmup_batch_count=0):
     print('\nEpoch: %d' % epoch)
-    net.train()
+    helper.net.train()
 
     metrics_dict = {}
     for batch_idx, (inputs, targets) in enumerate(train_loader):
@@ -40,20 +39,18 @@ def train(args, net, device, train_loader, optimizer, epoch,training_phase,
        
         if training_phase == TrainingPhase.WARMUP:
             #  we compute the warmup loss
-            loss, things_of_interest = get_warmup_loss(inputs, targets, optimizer,net)
+            loss, things_of_interest = helper.get_warmup_loss(inputs, targets)
         else:
             if batch_idx % bilevel_batch_count == 0:
-                if net.module.are_all_classifiers_frozen(): # no need to train classifiers anymore
+                if helper.net.module.are_all_classifiers_frozen(): # no need to train classifiers anymore
                     training_phase = TrainingPhase.GATE
                     print("All classifiers are frozen, setting training phase to gate")
                 else:
                     metrics_dict = {}
                     training_phase = switch_training_phase(training_phase)
-
-    
-            loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase, weighted=args.weighted_class_loss)
+            loss, things_of_interest = helper.get_surrogate_loss(inputs, targets, training_phase)
         loss.backward()
-        optimizer.step()
+        helper.optimizer.step()
         
         # obtain the metrics associated with the batch
         metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 
@@ -87,16 +84,15 @@ def train(args, net, device, train_loader, optimizer, epoch,training_phase,
     return metrics_dict
     
     
-def test(best_acc, args, net, device, test_loader, optimizer, epoch, freeze_classifier_with_val=False):
-    net.eval()
+def test(best_acc, args, helper: LearningHelper, device, test_loader, epoch, freeze_classifier_with_val=False):
+    helper.net.eval()
     metrics_dict = {}
     for batch_idx, (inputs, targets) in enumerate(test_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         batch_size = targets.size(0)
 
-        loss, things_of_interest = get_surrogate_loss(
-                inputs, targets, optimizer, net)
-        #obtain the metrics associated with the batch
+        loss, things_of_interest = helper.get_surrogate_loss(inputs, targets)
+        # obtain the metrics associated with the batch
         metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 
         metrics_of_batch['loss'] = (loss.item(), batch_size)
         
@@ -132,7 +128,7 @@ def test(best_acc, args, net, device, test_loader, optimizer, epoch, freeze_clas
     if gated_acc > best_acc:
         print('Saving..')
         state = {
-            'net': net.state_dict(),
+            'net': helper.net.state_dict(),
             'acc': gated_acc,
             'epoch': epoch,
         }
