@@ -47,6 +47,7 @@ def train(args, net, device, train_loader, optimizer, epoch,training_phase,
                     training_phase = TrainingPhase.GATE
                     print("All classifiers are frozen, setting training phase to gate")
                 else:
+                    metrics_dict = {}
                     training_phase = switch_training_phase(training_phase)
 
     

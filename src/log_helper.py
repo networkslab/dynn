@@ -32,17 +32,18 @@ def log_aggregate_metrics_mlflow(prefix_logger, metrics_dict, gates_count):
         if we_want_to_see_it(metric_key):
             metric_name_display = key_to_name_display(metric_key)
             cumul_metric, total = val
-            if type(cumul_metric) is list: 
-                if len(cumul_metric) == gates_count and 'per_gate' in metric_key:# if the length is the number of gates we want to see all of them
-                    for g, cumul_metric_per_gate in enumerate(cumul_metric):
-                        log_dict[prefix_logger+'/'+metric_name_display+ str(g)]  = get_display(metric_key, cumul_metric_per_gate)/total
+            if total >0:
+                if type(cumul_metric) is list: 
+                    if len(cumul_metric) == gates_count and 'per_gate' in metric_key:# if the length is the number of gates we want to see all of them
+                        for g, cumul_metric_per_gate in enumerate(cumul_metric):
+                            log_dict[prefix_logger+'/'+metric_name_display+ str(g)]  = get_display(metric_key, cumul_metric_per_gate)/total
+                    else:
+                        log_dict[prefix_logger+'/'+metric_name_display]  = get_display(metric_key, np.mean(cumul_metric))/total
+                elif type(cumul_metric) is dict :
+                    for g, cumul_metric_per_gate in cumul_metric.items():
+                            log_dict[prefix_logger+'/'+metric_name_display+ str(g)]  = get_display(metric_key, cumul_metric_per_gate)/total
                 else:
-                    log_dict[prefix_logger+'/'+metric_name_display]  = get_display(metric_key, np.mean(cumul_metric))/total
-            elif type(cumul_metric) is dict :
-                for g, cumul_metric_per_gate in cumul_metric.items():
-                        log_dict[prefix_logger+'/'+metric_name_display+ str(g)]  = get_display(metric_key, cumul_metric_per_gate)/total
-            else:
-                log_dict[prefix_logger+'/'+metric_name_display] = get_display(metric_key, cumul_metric)/total
+                    log_dict[prefix_logger+'/'+metric_name_display] = get_display(metric_key, cumul_metric)/total
     return log_dict
 
 
