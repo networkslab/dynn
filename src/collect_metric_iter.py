@@ -161,12 +161,11 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
                     things_of_interest['sample_exit_level_map'],
                     targets,
                     predicted)
-        entries = ['gated_correct_count_per_gate', 'gated_pred_count_per_gate']
-        for entry in entries:
-            metrics_to_aggregate_dict[entry] = ([0 for _ in range(gates_count)], batch_size)
+        
+        metrics_to_aggregate_dict['percent_exit_per_gate'] = ([0 for _ in range(gates_count)], batch_size)
         for g, pred_tuple in correct_number_per_gate_batch.items():
-            metrics_to_aggregate_dict['gated_correct_count_per_gate'][0][g]= pred_tuple[0]
-            metrics_to_aggregate_dict['gated_pred_count_per_gate'][0][g] = pred_tuple[1]
+            metrics_to_aggregate_dict['gated_correct_count_'+str(g)]= (pred_tuple[0], pred_tuple[1])
+            metrics_to_aggregate_dict['percent_exit_per_gate'][0][g] = pred_tuple[1]
 
     # GATE associated metrics
     if 'exit_count_optimal_gate' in things_of_interest:
