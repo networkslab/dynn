@@ -42,7 +42,8 @@ def log_aggregate_metrics_mlflow(prefix_logger, metrics_dict, gates_count):
                 for g, cumul_metric_per_gate in cumul_metric.items():
                         log_dict[prefix_logger+'/'+metric_name_display+ str(g)]  = get_display(metric_key, cumul_metric_per_gate)/total
             else:
-                log_dict[prefix_logger+'/'+metric_name_display] = get_display(metric_key, cumul_metric)/total
+                if total != 0:
+                    log_dict[prefix_logger+'/'+metric_name_display] = get_display(metric_key, cumul_metric)/total
     return log_dict
 
 

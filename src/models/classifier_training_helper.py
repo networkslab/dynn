@@ -42,8 +42,8 @@ class ClassifierTrainingHelper:
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor, compute_hamming = False):
         intermediate_logits = [] # logits from the intermediate classifiers
         num_exits_per_gate = []
-        final_head, intermediate_outs, intermediate_codes = self.net.forward_features(inputs)
-        final_logits = self.net.head(final_head)
+        final_head, intermediate_outs, intermediate_codes = self.net.module.forward_features(inputs)
+        final_logits = self.net.module.head(final_head)
         prob_gates = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
         gated_y_logits = torch.zeros_like(final_logits) # holds the accumulated predictions in a single tensor
         sample_exit_level_map = torch.zeros_like(targets) # holds the exit level of each prediction
@@ -53,12 +53,12 @@ class ClassifierTrainingHelper:
         p_exit_at_gate_list = []
         loss_per_gate_list = []
         G = torch.zeros((targets.shape[0], 1)).to(inputs.device) # holds the g's, the sigmoided gate outputs
-        for l, intermediate_head in enumerate(self.net.intermediate_heads):
+        for l, intermediate_head in enumerate(self.net.module.intermediate_heads):
             current_logits = intermediate_head(intermediate_outs[l])
             intermediate_logits.append(current_logits)
             # TODO: Freezing the gate can be done in learning helper when we switch phase.
             with torch.no_grad(): # Prevent backpropagation to gates.
-                    exit_gate_logit = self.net.get_gate_prediction(l, current_logits, intermediate_codes)
+                    exit_gate_logit = self.net.module.get_gate_prediction(l, current_logits, intermediate_codes)
             g = torch.nn.functional.sigmoid(exit_gate_logit) # g
         
             no_exit_previous_gates_prob = torch.prod(1 - prob_gates, axis=1)[:,None] # prod (1-g)
@@ -87,7 +87,7 @@ class ClassifierTrainingHelper:
             # Update early_exit_logits which include all predictions across all layers
             gated_y_logits = gated_y_logits + torch.mul(current_exit, current_logits)
         final_gate_exit = torch.logical_not(past_exits)
-        sample_exit_level_map[final_gate_exit.flatten().nonzero()] = len(self.net.intermediate_heads)
+        sample_exit_level_map[final_gate_exit.flatten().nonzero()] = len(self.net.module.intermediate_heads)
         num_exits_per_gate.append(torch.sum(final_gate_exit))
         gated_y_logits = gated_y_logits + torch.mul(final_gate_exit, final_logits) # last gate
         things_of_interest = {

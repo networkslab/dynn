@@ -6,7 +6,7 @@ import mlflow
 from timm.models import *
 from timm.models import create_model
 from collect_metric_iter import aggregate_metrics, process_things
-from learning_helper import get_warmup_loss, get_surrogate_loss
+from learning_helper import get_warmup_loss, get_surrogate_loss, LearningHelper
 from log_helper import log_aggregate_metrics_mlflow
 from utils import  progress_bar
 from early_exit_utils import switch_training_phase
@@ -51,6 +51,62 @@ def train_single_epoch(args, net, device, train_loader, optimizer, epoch,trainin
             loss, things_of_interest = get_surrogate_loss(inputs, targets, optimizer, net, training_phase=training_phase, weighted=args.weighted_class_loss)
         loss.backward()
         optimizer.step()
+        
+        # obtain the metrics associated with the batch
+        metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 
+        metrics_of_batch['loss'] = (loss.item(), batch_size)
+        
+        # keep track of the average metrics
+        metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G) 
+        
+        # format the metric ready to be displayed
+        log_dict = log_aggregate_metrics_mlflow(
+                prefix_logger='train',
+                metrics_dict=metrics_dict, gates_count=args.G) 
+
+        if args.use_mlflow:
+            mlflow.log_metrics(log_dict,
+                                step=batch_idx +
+                                (epoch * len(train_loader)))
+        
+        display_progress_bar('train', training_phase, step=batch_idx, total=len(train_loader), log_dict=log_dict)
+        
+        # if we are in warmup phase, we return if finished.
+        if training_phase == TrainingPhase.WARMUP and batch_idx > warmup_batch_count:
+            return metrics_dict
+        if args.barely_train:
+            if batch_idx > 50:
+                print(
+                    '++++++++++++++WARNING++++++++++++++ you are barely training to test some things'
+                )
+                return metrics_dict
+
+    return metrics_dict
+
+def train_single_epoch_helper(args, helper: LearningHelper, device, train_loader, epoch,training_phase,
+          bilevel_batch_count=20,
+          warmup_batch_count=0):
+    print('\nEpoch: %d' % epoch)
+    helper.net.train()
+
+    metrics_dict = {}
+    for batch_idx, (inputs, targets) in enumerate(train_loader):
+        inputs, targets = inputs.to(device), targets.to(device)
+        batch_size = targets.size(0)
+       
+        if training_phase == TrainingPhase.WARMUP:
+            #  we compute the warmup loss
+            loss, things_of_interest = helper.get_warmup_loss(inputs, targets)
+        else:
+            if batch_idx % bilevel_batch_count == 0:
+                if helper.net.module.are_all_classifiers_frozen(): # no need to train classifiers anymore
+                    training_phase = TrainingPhase.GATE
+                    print("All classifiers are frozen, setting training phase to gate")
+                else:
+                    training_phase = switch_training_phase(training_phase)
+            loss, things_of_interest = helper.get_surrogate_loss(inputs, targets, training_phase)
+        loss.backward()
+        helper.optimizer.step()
         
         # obtain the metrics associated with the batch
         metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 

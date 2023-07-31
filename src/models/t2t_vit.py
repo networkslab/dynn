@@ -23,27 +23,14 @@ from .custom_modules.custom_GELU import CustomGELU
 from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
 from .custom_modules.learnable_code_gate import LearnableCodeGate
 from .custom_modules.learnable_complex_gate import LearnableComplexGate
+from .gate_training_helper import GateTrainingScheme
+from .classifier_training_helper import GateSelectionMode
 from sklearn.metrics import accuracy_score
 from enum import Enum
 class TrainingPhase(Enum):
     CLASSIFIER = 1
     GATE = 2
     WARMUP = 3
-
-class GateSelectionMode(Enum):
-    PROBABILISTIC = 'prob'
-    DETERMINISTIC = 'det'
-    WEIGHTED = 'weighted'
-class GateTrainingScheme(Enum):
-    """
-    The training scheme when training gates.
-    Default means training the optimal gate to exit while all others are forced not to.
-    Ignore subsequent means training the optimal gate to exit, the previous gates to not exit and we ignore later (deeper) gates
-    Exit subsequent means training the optimal gate to exit, all subsequent gates to exit as well while earlier gates are trained not to exit.
-    """
-    DEFAULT = 1
-    IGNORE_SUBSEQUENT = 2
-    EXIT_SUBSEQUENT = 3
 
 
 

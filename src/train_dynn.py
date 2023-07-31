@@ -10,10 +10,10 @@ from timm.models import *
 from timm.models import create_model
 from boosted_training_helper import test_boosted, train_boosted
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
-from learning_helper import freeze_backbone as freeze_backbone_helper
+from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 from log_helper import setup_mlflow
 from models.custom_modules.gate import GateType
-from our_train_helper import train_single_epoch, test
+from our_train_helper import train_single_epoch, test, train_single_epoch_helper
 from utils import fix_the_seed
 from models.t2t_vit import GateTrainingScheme, GateSelectionMode, Boosted_T2T_ViT, TrainingPhase
 
@@ -92,7 +92,7 @@ transformer_layer_gating = [g for g in range(args.G)]
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
 print('==> Building model..')
-net = create_model(model,  # TODO configure this to accept the architecture (boosted vs others etc...)
+net = create_model(model, # TODO configure this to accept the architecture (boosted vs others etc...)
                    pretrained=False,
                    num_classes=NUM_CLASSES,
                    drop_rate=0.0,
@@ -165,12 +165,10 @@ if isinstance(net.module, Boosted_T2T_ViT):
 else:
     
     # start with warm up for the first epoch
-    
-    train_single_epoch(args, net, device, train_loader, optimizer, epoch=0,training_phase=TrainingPhase.WARMUP,
-          bilevel_batch_count=None, warmup_batch_count=args.warmup_batch_count)
+    learning_helper = LearningHelper(net, optimizer, args)
+    train_single_epoch_helper(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
     for epoch in range(1, args.num_epoch):
-        stored_metrics_train = train_single_epoch(args, net, device, train_loader, optimizer, epoch=epoch,training_phase=TrainingPhase.CLASSIFIER,
-          bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        stored_metrics_train = train_single_epoch_helper(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
 
         stored_metrics_test = test(best_acc, args, net, device, test_loader, optimizer, epoch, freeze_classifier_with_val=False)
         scheduler.step()
