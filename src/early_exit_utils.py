@@ -8,7 +8,7 @@ def switch_training_phase(current_phase):
     elif current_phase == TrainingPhase.CLASSIFIER:
         return TrainingPhase.GATE
     elif current_phase == TrainingPhase.WARMUP:
-        return TrainingPhase.GATEz
+        return TrainingPhase.GATE
 
 
         
