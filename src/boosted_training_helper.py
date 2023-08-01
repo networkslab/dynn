@@ -26,11 +26,8 @@ def test_boosted(args, net, test_loader, epoch):
     for x, y in test_loader:
         x, y = x.cuda(), y.cuda()
         with torch.no_grad():
-            outs, ensemble_preds = net.module.forward_all(x, n_blocks-1)
-        if args.ensemble_pred:
-            preds = ensemble_preds
-        else:
-            preds = outs
+            preds = net.module.forward(x, n_blocks-1)
+   
         for i, pred in enumerate(preds):
             corrects[i] += (torch.argmax(pred, 1) == y).sum().item()
             totals[i] += y.shape[0]

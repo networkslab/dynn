@@ -46,6 +46,7 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
                     training_phase = TrainingPhase.GATE
                     print("All classifiers are frozen, setting training phase to gate")
                 else:
+                    metrics_dict = {}
                     training_phase = switch_training_phase(training_phase)
             loss, things_of_interest = helper.get_surrogate_loss(inputs, targets, training_phase)
         loss.backward()
