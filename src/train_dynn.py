@@ -46,7 +46,6 @@ parser.add_argument('--proj_dim',default=32,help='Target dimension of random pro
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
 parser.add_argument('--weighted_class_loss', default=True, help='How to compute loss of classifiers')
-#parser.add_argument('--ensemble_pred', default=True, help='Should we average over the predictions of all previous gates')
 args = parser.parse_args()
 
 fix_the_seed(seed=322)
