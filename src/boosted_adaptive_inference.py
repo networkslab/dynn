@@ -9,7 +9,7 @@ import torch.nn as nn
 import os
 import torch.backends.cudnn as cudnn
 import math
-from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders
+from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root
 from timm.models import *
 from timm.models import create_model
 
@@ -17,7 +17,7 @@ from models.t2t_vit import Boosted_T2T_ViT
 
 
 class CustomizedOpen():
-    def __init__(self, path, mode):
+    def __init__(self, path, mode): 
         self.path = path
         self.mode = mode
 
@@ -39,7 +39,8 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
 
     acc_val_last = -1
     acc_test_last = -1
-    save_path = os.path.join(args.result_dir, 'dynamic{}.txt'.format(args.save_suffix))
+    path_project = get_path_to_project_root()
+    save_path = os.path.join(path_project, args.result_dir, 'dynamic{}.txt'.format(args.save_suffix))
 
     with CustomizedOpen(save_path, 'w') as fout:
         # for p in range(1, 100):
@@ -219,8 +220,8 @@ if __name__ == '__main__':
         description='Boosted eval')
     parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7'], default='t2t_vit_7_boosted', help='model')
     parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
-    parser.add_argument('--checkpoint_dir', type=str, help='Directory of checkpoint for trained model')
-    parser.add_argument('--result_dir', type=str, help='Directory for storing FLOP and acc')
+    parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar10_t2t_7_boosted",help='Directory of checkpoint for trained model')
+    parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--base', type=int, default=4)
     parser.add_argument('--stepmode', type=str, choices=['even', 'lin_grow'])
     parser.add_argument('--step', type=int, default=1)
@@ -234,7 +235,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_milestones', default='100,200', type=str, help='lr decay milestones')
     parser.add_argument('--ensemble_reweight', default="1.0", type=str, help='ensemble weight of early classifiers')
     parser.add_argument('--loss_equal', action='store_true', help='loss equalization')
-    parser.add_argument('--save_suffix', type=str)
+    parser.add_argument('--save_suffix', default="patate",type=str)
     parser.add_argument('--batch-size', type=int, default=64)
     args = parser.parse_args()
     main(args)
