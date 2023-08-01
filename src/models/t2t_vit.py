@@ -351,6 +351,15 @@ class Boosted_T2T_ViT(T2T_ViT):
                 break
         return outs, preds
 
+    def forward(self, x, stage=None):
+        outs = self.boosted_forward(x)
+        preds = [0]
+        for i in range(len(outs)):
+            pred = outs[i] + preds[-1] * self.ensemble_reweight[i]
+            preds.append(pred)
+        preds = preds[1:]
+        return preds
+
 class GradientRescaleFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, weight):
