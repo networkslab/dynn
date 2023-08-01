@@ -175,6 +175,7 @@ class Tester(object):
         correct_all = [0 for _ in range(n_stage)]
         acc_gated = []
         for i in range(n_sample):
+            has_exited = False
             gold_label = targets[i]
             for k in range(n_stage):
                 # compute acc over all samples, regardless of exit
@@ -182,12 +183,12 @@ class Tester(object):
                 target = int(gold_label.item())
                 if classifier_pred == target:
                     correct_all[k] += 1
-                if max_preds[k][i].item() >= thresholds[k]: # exit at k
+                if max_preds[k][i].item() >= thresholds[k] and not has_exited: # exit at k
                     if target == classifier_pred:
                         acc += 1
                         acc_rec[k] += 1
                     exit_count[k] += 1 # keeps track of number of exits per gate
-                    break
+                    has_exited = True # keep on looping but only for computing correct_all
         acc_all, sample_all = 0, 0
         for k in range(n_stage):
             _t = exit_count[k] * 1.0 / n_sample
