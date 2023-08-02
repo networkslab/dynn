@@ -53,7 +53,7 @@ class GateTrainingHelper:
     def zeroOneLoss(self, logits, targets):
         _, predicted = logits.max(1)
         correct = predicted.eq(targets)
-        return correct
+        return -correct.flatten()
 
     def prob_when_correct(self, logits, targets):
         probs = torch.nn.functional.softmax(logits, dim=1) # get the probs
@@ -65,7 +65,7 @@ class GateTrainingHelper:
 
         prob_when_correct = correct * p_max # hadamard product, p when the prediciton is correct, else 0
         
-        return prob_when_correct
+        return -prob_when_correct.flatten()
 
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor):
         final_head, intermediate_zs, intermediate_codes = self.net.module.forward_features(inputs)
