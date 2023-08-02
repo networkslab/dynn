@@ -29,7 +29,7 @@ parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
-parser.add_argument('--ce_ic_tradeoff',default=1.5,type=float,help='cost inference and cross entropy loss tradeoff')
+parser.add_argument('--ce_ic_tradeoff',default=0.1,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=8, type=int, help='num of epochs')
 parser.add_argument('--warmup_batch_count',default=500,type=int,help='number of batches for warmup where all classifier are trained')
@@ -40,7 +40,7 @@ parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_ga
 parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
-parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.ZeroOne, choices=GateObjective)
+parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.Prob, choices=GateObjective)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT',help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])

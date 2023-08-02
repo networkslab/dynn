@@ -32,6 +32,7 @@ class GateTrainingScheme(Enum):
 class GateObjective(Enum):
     CrossEntropy = 1
     ZeroOne = 2
+    Prob = 3
 
 class InvalidLossContributionModeException(Exception):
     pass
@@ -45,12 +46,26 @@ class GateTrainingHelper:
         if self.gate_objective == GateObjective.CrossEntropy:
             self.predictor_criterion = nn.CrossEntropyLoss(reduction='none') # Measures Cross entropy loss
         elif self.gate_objective == GateObjective.ZeroOne:
-            self.predictor_criterion = self.ZeroOneLoss # Measures the accuracy
+            self.predictor_criterion = self.zeroOneLoss # Measures the accuracy
+        elif self.gate_objective == GateObjective.Prob:
+            self.predictor_criterion = self.prob_when_correct # Measures prob of the correct class if accurate, else returns 0
     
-    def ZeroOneLoss(self, logits, targets):
+    def zeroOneLoss(self, logits, targets):
         _, predicted = logits.max(1)
         correct = predicted.eq(targets)
         return correct
+
+    def prob_when_correct(self, logits, targets):
+        probs = torch.nn.functional.softmax(logits, dim=1) # get the probs
+        p_max, _ = torch.topk(probs, 1) # get p max
+
+
+        _, predicted = logits.max(1) # get the prediction
+        correct = predicted.eq(targets)[:,None]
+
+        prob_when_correct = correct * p_max # hadamard product, p when the prediciton is correct, else 0
+        
+        return prob_when_correct
 
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor):
         final_head, intermediate_zs, intermediate_codes = self.net.module.forward_features(inputs)
