@@ -24,7 +24,7 @@ class LearningHelper:
     
     def _init_gate_training_helper(self, args) -> None:
         gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
-        self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme)
+        self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme, args.gate_objective)
 
     def get_surrogate_loss(self, inputs, targets, training_phase=None):
         if self.net.training:

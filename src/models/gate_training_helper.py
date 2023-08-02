@@ -29,22 +29,36 @@ class GateTrainingScheme(Enum):
     IGNORE_SUBSEQUENT = 2
     EXIT_SUBSEQUENT = 3
 
+class GateObjective(Enum):
+    CrossEntropy = 1
+    ZeroOne = 2
+
 class InvalidLossContributionModeException(Exception):
     pass
 
 class GateTrainingHelper:
-    def __init__(self, net: nn.Module, gate_training_scheme: GateTrainingScheme) -> None:
+    def __init__(self, net: nn.Module, gate_training_scheme: GateTrainingScheme, gate_objective: GateObjective) -> None:
         self.net = net
         self.gate_training_scheme = gate_training_scheme
         self.gate_criterion = nn.BCEWithLogitsLoss(reduction='none')
+        self.gate_objective = gate_objective
+        if self.gate_objective == GateObjective.CrossEntropy:
+            self.predictor_criterion = nn.CrossEntropyLoss(reduction='none') # Measures Cross entropy loss
+        elif self.gate_objective == GateObjective.ZeroOne:
+            self.predictor_criterion = self.ZeroOneLoss # Measures the accuracy
     
+    def ZeroOneLoss(self, logits, targets):
+        _, predicted = logits.max(1)
+        correct = predicted.eq(targets)
+        return correct
+
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor):
         final_head, intermediate_zs, intermediate_codes = self.net.module.forward_features(inputs)
         final_logits = self.net.module.head(final_head)
         intermediate_losses = []
         gate_logits = []
         intermediate_logits = []
-        accuracy_criterion = nn.CrossEntropyLoss(reduction='none') # Measures accuracy of classifiers
+        
         optimal_exit_count_per_gate = dict.fromkeys(range(len(self.net.module.intermediate_heads)), 0) # counts number of times a gate was selected as the optimal gate for exiting
         
         for l, intermediate_head in enumerate(self.net.module.intermediate_heads):
@@ -52,15 +66,15 @@ class GateTrainingHelper:
             intermediate_logits.append(current_logits)
             current_gate_logits = self.net.module.get_gate_prediction(l, current_logits, intermediate_codes)      
             gate_logits.append(current_gate_logits)
-            ce_loss = accuracy_criterion(current_logits, targets)
+            pred_loss = self.predictor_criterion(current_logits, targets)
             ic_loss = (l + 1) / (len(intermediate_zs) + 1)
-            level_loss = ce_loss + self.net.module.CE_IC_tradeoff * ic_loss
+            level_loss = pred_loss + self.net.module.CE_IC_tradeoff * ic_loss
             level_loss = level_loss[:, None]
             intermediate_losses.append(level_loss)
         # add the final head as an exit to optimize for
-        final_ce_loss = accuracy_criterion(final_logits, targets)
+        final_pred_loss = self.predictor_criterion(final_logits, targets)
         final_ic_loss = 1
-        final_level_loss = final_ce_loss + self.net.module.CE_IC_tradeoff * final_ic_loss
+        final_level_loss = final_pred_loss + self.net.module.CE_IC_tradeoff * final_ic_loss
         final_level_loss = final_level_loss[:, None]
         intermediate_losses.append(final_level_loss)
         

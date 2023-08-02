@@ -13,6 +13,7 @@ from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloade
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 from log_helper import setup_mlflow
 from models.custom_modules.gate import GateType
+from models.gate_training_helper import GateObjective
 from our_train_helper import test, train_single_epoch
 from utils import fix_the_seed
 from models.t2t_vit import GateTrainingScheme, GateSelectionMode, Boosted_T2T_ViT, TrainingPhase
@@ -36,9 +37,10 @@ parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
-parser.add_argument('--gate',type=GateType,default=GateType.CODE_AND_UNC,choices=GateType)  # unc, code, code_and_unc
+parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
+parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.ZeroOne, choices=GateObjective)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT',help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
