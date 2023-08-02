@@ -7,8 +7,10 @@ import argparse
 import torch
 import torch.nn as nn
 import os
+import mlflow
 import torch.backends.cudnn as cudnn
 import math
+from log_helper import setup_mlflow
 from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root
 from timm.models import *
 from timm.models import create_model
@@ -51,10 +53,26 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             probs = torch.exp(torch.log(_p) * torch.range(1, n_blocks))
             probs /= probs.sum()
             acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred, val_target, probs, costs_at_exit)
-            acc_test, exp_cost = tester.dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T)
+            acc_test, exp_cost, metrics_dict = tester.dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T)
+            mlflow_dict = get_ml_flow_dict(metrics_dict)
             print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}%'.format(acc_val, acc_test, exp_cost))
-            fout.write('{} {}\n'.format(exp_cost.item(), acc_test))
+            mlflow.log_metrics(mlflow_dict, step=p)
+            fout.write('Cost: {}, Test acc {}\n'.format(exp_cost.item(), acc_test))
+            # for k, v in metrics_dict.items():
+            #     fout.write(f'{k}\n')
+            #     for item in v:
+            #         fout.write(f'{item}%\n')
+            # fout.write('**************************\n')
 
+def get_ml_flow_dict(dict):
+    mlflow_dict = {}
+    for k, v in dict.items():
+        if isinstance(v, list):
+            for i in range(len(v)):
+                mlflow_dict[f'{k}_{i}'] = v[i]
+        else:
+            mlflow_dict[k] = v
+    return mlflow_dict
 
 class Tester(object):
     def __init__(self, model, args=None):
@@ -148,30 +166,48 @@ class Tester(object):
         return acc * 100.0 / n_sample, expected_flops, T
 
     def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds):
+        metrics_dict = {}
         n_stage, n_sample, _ = logits.size()
         max_preds, argmax_preds = logits.max(dim=2, keepdim=False) # take the max logits as confidence
 
-        acc_rec, exp = torch.zeros(n_stage), torch.zeros(n_stage)
+        acc_rec, exit_count = torch.zeros(n_stage), torch.zeros(n_stage)
         acc, expected_flops = 0, 0
+        correct_all = [0 for _ in range(n_stage)]
+        acc_gated = []
         for i in range(n_sample):
+            has_exited = False
             gold_label = targets[i]
             for k in range(n_stage):
-                if max_preds[k][i].item() >= thresholds[k]: # force to exit at k
-                    _g = int(gold_label.item())
-                    _pred = int(argmax_preds[k][i].item())
-                    if _g == _pred:
+                # compute acc over all samples, regardless of exit
+                classifier_pred = int(argmax_preds[k][i].item())
+                target = int(gold_label.item())
+                if classifier_pred == target:
+                    correct_all[k] += 1
+                if max_preds[k][i].item() >= thresholds[k] and not has_exited: # exit at k
+                    if target == classifier_pred:
                         acc += 1
                         acc_rec[k] += 1
-                    exp[k] += 1
-                    break
+                    exit_count[k] += 1 # keeps track of number of exits per gate
+                    has_exited = True # keep on looping but only for computing correct_all
         acc_all, sample_all = 0, 0
         for k in range(n_stage):
-            _t = exp[k] * 1.0 / n_sample
-            sample_all += exp[k]
+            _t = exit_count[k] * 1.0 / n_sample
+            sample_all += exit_count[k]
             expected_flops += _t * flops[k]
             acc_all += acc_rec[k]
+        exit_rate = []
+        for i in range(n_stage):
+            acc_gated.append((acc_rec[i] / exit_count[i] * 100).item())
+            correct_all[i] = correct_all[i] / n_sample * 100
+            exit_rate.append(exit_count[i].item() / n_sample * 100)
+        metrics_dict['GATED_ACC_PER_GATE'] = acc_gated
+        metrics_dict['ALL_ACC_PER_GATE'] = correct_all
+        metrics_dict['EXIT_RATE_PER_GATE'] = exit_rate
+        acc = acc * 100.0 / n_sample
+        metrics_dict['ACC'] = acc
+        metrics_dict['EXPECTED_FLOPS'] = expected_flops.item()
 
-        return acc * 100.0 / n_sample, expected_flops
+        return acc * 100.0 / n_sample, expected_flops, metrics_dict
 
 def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_size):
     checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
@@ -199,7 +235,10 @@ def main(args):
     NUM_CLASSES = 10
     IMG_SIZE = 224
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
+    cfg = vars(args)
+    if args.use_mlflow:
+        name = "boosted_adaptive_inference"
+        setup_mlflow(name, cfg, experiment_name='boosted_evaluation')
     # LOAD MODEL
     checkpoint_path = get_latest_checkpoint_path(args.checkpoint_dir)
     net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
@@ -212,6 +251,7 @@ def main(args):
     else:
         raise 'Unsupported dataset'
     dynamic_evaluate(net, test_loader, val_loader, args)
+    mlflow.end_run()
 
 
 
@@ -222,6 +262,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
     parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar10_t2t_7_boosted",help='Directory of checkpoint for trained model')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
+    parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
     parser.add_argument('--base', type=int, default=4)
     parser.add_argument('--stepmode', type=str, choices=['even', 'lin_grow'])
     parser.add_argument('--step', type=int, default=1)

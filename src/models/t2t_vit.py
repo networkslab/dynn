@@ -359,7 +359,7 @@ class Boosted_T2T_ViT(T2T_ViT):
             preds.append(pred)
         preds = preds[1:]
         return preds
-        
+
 class GradientRescaleFunction(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, weight):
