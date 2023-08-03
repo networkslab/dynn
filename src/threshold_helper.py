@@ -33,7 +33,7 @@ def fixed_threshold_test(args, helper: LearningHelper, device, test_loader, val_
     accs = []
     # for p in range(1, 100):
     for p in range(1, 40):
-        print("*********************")
+        #print("*********************")
         _p = torch.FloatTensor(1).fill_(p * 1.0 / 20)
         
         probs = torch.exp(torch.log(_p) * torch.range(1, 7))
@@ -41,7 +41,7 @@ def fixed_threshold_test(args, helper: LearningHelper, device, test_loader, val_
         acc_val, _, T = dynamic_eval_find_threshold(val_pred, val_target, probs, costs_at_exit)
         acc_test, exp_cost, metrics_dict = dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T)
         mlflow_dict = get_ml_flow_dict(metrics_dict)
-        print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}%'.format(acc_val, acc_test, exp_cost))
+        #print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}%'.format(acc_val, acc_test, exp_cost))
         mlflow.log_metrics(mlflow_dict, step=p)
         costs.append(exp_cost)
         accs.append(acc_test)
@@ -56,7 +56,7 @@ def get_ml_flow_dict(dict):
         else:
             mlflow_dict[k] = v
     return mlflow_dict
-    
+
 def dynamic_eval_with_threshold(logits, targets, flops, thresholds):
         metrics_dict = {}
         n_stage, n_sample, _ = logits.size()
