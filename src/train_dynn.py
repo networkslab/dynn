@@ -166,7 +166,7 @@ if isinstance(net.module, Boosted_T2T_ViT):
         os.mkdir(target_checkpoint_folder_path)
     torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
 
-elif args.model == 't2t_vit_baseline': # only training with warmup
+elif 'baseline' in args.arch: # only training with warmup
     learning_helper = LearningHelper(net, optimizer, args)
     for epoch in range(0, args.num_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
