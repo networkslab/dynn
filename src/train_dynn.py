@@ -24,8 +24,8 @@ parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
-                    choices=['t2t_vit_7_boosted', 't2t_vit_7_pmax','t2t_vit_7', 't2t_vit_14'],
-                    default='t2t_vit_7_boosted', help='model to train'
+                    choices=['t2t_vit_7_boosted', 'T2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14'],
+                    default='t2t_vit_7_baseline', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
@@ -165,6 +165,14 @@ if isinstance(net.module, Boosted_T2T_ViT):
     if not os.path.isdir(target_checkpoint_folder_path):
         os.mkdir(target_checkpoint_folder_path)
     torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
+
+elif args.model == 't2t_vit_baseline': # only training with warmup
+    learning_helper = LearningHelper(net, optimizer, args)
+    for epoch in range(0, args.num_epoch):
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        stored_metrics_test = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        scheduler.step()
+
 else:
     
     # start with warm up for the first epoch

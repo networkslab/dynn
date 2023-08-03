@@ -17,6 +17,7 @@ def _cfg(url='', **kwargs):
 
 default_cfgs = {
     'T2t_vit_7': _cfg(),
+    'T2t_vit_7_baseline': _cfg(),
     'T2t_vit_7_boosted': _cfg(),
     'T2t_vit_10': _cfg(),
     'T2t_vit_12': _cfg(),
@@ -35,6 +36,17 @@ def t2t_vit_7(pretrained=False, **kwargs): # adopt performer for tokens to token
         kwargs.setdefault('qk_scale', 256 ** -0.5)
     model = T2T_ViT(tokens_type='performer', embed_dim=256, depth=7, num_heads=4, mlp_ratio=2., **kwargs)
     model.default_cfg = default_cfgs['T2t_vit_7']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+@register_model
+def t2t_vit_7_baseline(pretrained=False, **kwargs): # adopt performer for tokens to token
+    if pretrained:
+        kwargs.setdefault('qk_scale', 256 ** -0.5)
+    model = T2T_ViT(tokens_type='performer', embed_dim=256, depth=7, num_heads=4, mlp_ratio=2., **kwargs)
+    model.default_cfg = default_cfgs['T2t_vit_7_baseline']
     if pretrained:
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
