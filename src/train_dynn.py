@@ -69,7 +69,7 @@ if args.use_mlflow:
         ]
     ])
     cfg = vars(args)
-    setup_mlflow(name, cfg, experiment_name='ensemble')
+    setup_mlflow(name, cfg, experiment_name='baseline')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
