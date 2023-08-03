@@ -15,6 +15,7 @@ from log_helper import setup_mlflow
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
 from our_train_helper import test, train_single_epoch
+from threshold_helper import fixed_threshold_test
 from utils import fix_the_seed
 from models.register_models import *
 from models.boosted_t2t_vit import Boosted_T2T_ViT
@@ -81,14 +82,15 @@ if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
     args.G = 6
-    train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, test_batch_size=args.batch)
+    train_loader, val_loader, test_loader  = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, 
+                                                    test_batch_size=args.batch, val_size=5000)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     IMG_SIZE = 224
     args.G = 13
-    train_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch)
+    train_loader, val_loader, test_loader  = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                         map_location=torch.device(device))
 transformer_layer_gating = [g for g in range(args.G)]
@@ -168,9 +170,11 @@ if isinstance(net.module, Boosted_T2T_ViT):
 
 elif 'baseline' in args.arch: # only training with warmup
     learning_helper = LearningHelper(net, optimizer, args)
+    
     for epoch in range(0, args.num_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
         stored_metrics_test = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
 
 else:
@@ -180,8 +184,8 @@ else:
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
     for epoch in range(1, args.num_epoch):
         stored_metrics_train = train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-
         stored_metrics_test = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
 
 mlflow.end_run()

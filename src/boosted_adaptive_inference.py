@@ -15,7 +15,8 @@ from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifa
 from timm.models import *
 from timm.models import create_model
 
-from models.t2t_vit import Boosted_T2T_ViT
+from models.register_models import *
+from models.boosted_t2t_vit import Boosted_T2T_ViT
 
 
 class CustomizedOpen():

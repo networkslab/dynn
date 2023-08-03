@@ -82,11 +82,13 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
                 return metrics_dict
 
     return metrics_dict
-    
-    
+
+
+
 def test(best_acc, args, helper: LearningHelper, device, test_loader, epoch, freeze_classifier_with_val=False):
     helper.net.eval()
     metrics_dict = {}
+    
     for batch_idx, (inputs, targets) in enumerate(test_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         batch_size = targets.size(0)
