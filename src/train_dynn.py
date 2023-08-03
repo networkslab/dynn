@@ -16,14 +16,16 @@ from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
 from our_train_helper import test, train_single_epoch
 from utils import fix_the_seed
-from models.t2t_vit import GateTrainingScheme, GateSelectionMode, Boosted_T2T_ViT, TrainingPhase
+from models.register_models import *
+from models.boosted_t2t_vit import Boosted_T2T_ViT
+from models.t2t_vit import GateTrainingScheme, GateSelectionMode, TrainingPhase
 
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
-                    choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14'],
-                    default='t2t_vit_7', help='model to train'
+                    choices=['t2t_vit_7_boosted', 't2t_vit_7_pmax','t2t_vit_7', 't2t_vit_14'],
+                    default='t2t_vit_7_boosted', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')

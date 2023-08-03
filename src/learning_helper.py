@@ -1,6 +1,6 @@
 import torch
 from metrics_utils import check_hamming_vs_acc
-from models.t2t_vit import TrainingPhase, Boosted_T2T_ViT, GateSelectionMode
+from models.t2t_vit import TrainingPhase
 from torch import nn
 import numpy as np
 from models.classifier_training_helper import LossContributionMode, ClassifierTrainingHelper
