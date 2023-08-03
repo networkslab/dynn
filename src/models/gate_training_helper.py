@@ -30,9 +30,9 @@ class GateTrainingScheme(Enum):
     EXIT_SUBSEQUENT = 3
 
 class GateObjective(Enum):
-    CrossEntropy = 1
-    ZeroOne = 2
-    Prob = 3
+    CrossEntropy = "ce"
+    ZeroOne = "zeroOne"
+    Prob = "prob"
 
 class InvalidLossContributionModeException(Exception):
     pass
