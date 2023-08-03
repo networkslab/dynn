@@ -25,7 +25,7 @@ parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
-                    choices=['t2t_vit_7_boosted', 'T2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14'],
+                    choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14'],
                     default='t2t_vit_7', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
