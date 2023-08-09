@@ -13,22 +13,26 @@ from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloade
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 from log_helper import setup_mlflow
 from models.custom_modules.gate import GateType
+from models.gate_training_helper import GateObjective
 from our_train_helper import test, train_single_epoch
+from threshold_helper import fixed_threshold_test
 from utils import fix_the_seed
-from models.t2t_vit import GateTrainingScheme, GateSelectionMode, Boosted_T2T_ViT, TrainingPhase
+from models.register_models import *
+from models.boosted_t2t_vit import Boosted_T2T_ViT
+from models.t2t_vit import GateTrainingScheme, GateSelectionMode, TrainingPhase
 
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
-                    choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14'],
+                    choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14'],
                     default='t2t_vit_7', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
-parser.add_argument('--ce_ic_tradeoff',default=1.5,type=float,help='cost inference and cross entropy loss tradeoff')
+parser.add_argument('--ce_ic_tradeoff',default=1,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=8, type=int, help='num of epochs')
 parser.add_argument('--warmup_batch_count',default=500,type=int,help='number of batches for warmup where all classifier are trained')
@@ -36,9 +40,10 @@ parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
-parser.add_argument('--gate',type=GateType,default=GateType.CODE_AND_UNC,choices=GateType)  # unc, code, code_and_unc
+parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
+parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.Prob, choices=GateObjective)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT',help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
@@ -64,7 +69,7 @@ if args.use_mlflow:
         ]
     ])
     cfg = vars(args)
-    setup_mlflow(name, cfg, experiment_name='ensemble')
+    setup_mlflow(name, cfg, experiment_name='baseline')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -77,14 +82,15 @@ if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
     args.G = 6
-    train_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, test_batch_size=args.batch)
+    train_loader, val_loader, test_loader  = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, 
+                                                    test_batch_size=args.batch, val_size=5000)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     IMG_SIZE = 224
     args.G = 13
-    train_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch)
+    train_loader, val_loader, test_loader  = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                         map_location=torch.device(device))
 transformer_layer_gating = [g for g in range(args.G)]
@@ -161,6 +167,16 @@ if isinstance(net.module, Boosted_T2T_ViT):
     if not os.path.isdir(target_checkpoint_folder_path):
         os.mkdir(target_checkpoint_folder_path)
     torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
+
+elif 'baseline' in args.arch: # only training with warmup
+    learning_helper = LearningHelper(net, optimizer, args)
+    
+    for epoch in range(0, args.num_epoch):
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        #stored_metrics_test = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
+        scheduler.step()
+
 else:
     
     # start with warm up for the first epoch
@@ -168,8 +184,8 @@ else:
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
     for epoch in range(1, args.num_epoch):
         stored_metrics_train = train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-
         stored_metrics_test = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
 
 mlflow.end_run()
