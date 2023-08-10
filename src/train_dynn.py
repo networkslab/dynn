@@ -34,7 +34,7 @@ parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifa
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=1,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
-parser.add_argument('--num_epoch', default=8, type=int, help='num of epochs')
+parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
 parser.add_argument('--warmup_batch_count',default=500,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
@@ -45,12 +45,12 @@ parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Dro
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
 parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.Prob, choices=GateObjective)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT',help='Gate training scheme (how to handle gates after first exit)',
+parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT', help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
-parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
-parser.add_argument('--weighted_class_loss', default=True, help='How to compute loss of classifiers')
+parser.add_argument('--use_mlflow',default=True, help='Store the run with mlflow')
+parser.add_argument('--weighted', action=argparse.BooleanOptionalAction, default=True, help='How to compute loss of classifiers')# pass --weighted or --no-weighted
 args = parser.parse_args()
 
 fix_the_seed(seed=322)
@@ -65,11 +65,11 @@ if args.use_mlflow:
     name = "_".join([
         str(a) for a in [
             args.model, args.ce_ic_tradeoff, args.gate,
-            args.gate_training_scheme, f'{"WEIGHTED" if args.weighted_class_loss else "SURR"}'
+            args.gate_training_scheme, f'{"WEIGHTED" if args.weighted else "SURR"}'
         ]
     ])
     cfg = vars(args)
-    setup_mlflow(name, cfg, experiment_name='baseline')
+    setup_mlflow(name, cfg, experiment_name='weighted_vs_unweighted')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 

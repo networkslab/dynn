@@ -19,7 +19,7 @@ class LearningHelper:
 
     def _init_classifier_training_helper(self, args) -> None:
         gate_selection_mode = args.gate_selection_mode
-        loss_contribution_mode = LossContributionMode.WEIGHTED if args.weighted_class_loss else LossContributionMode.SINGLE
+        loss_contribution_mode = LossContributionMode.WEIGHTED if args.weighted else LossContributionMode.SINGLE
         self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, loss_contribution_mode)
     
     def _init_gate_training_helper(self, args) -> None:
