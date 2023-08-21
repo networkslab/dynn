@@ -94,12 +94,12 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
         metrics_to_aggregate_dict['final_head_correct_all'] = (pred_final_head.eq(targets).sum().item(), batch_size)
 
         # uncertainty related stats to be aggregated
-        p_max, entropy, ece, margins, entropy_pow = compute_detached_uncertainty_metrics(final_y_logits, targets)
+        p_max, entropy, average_ece, margins, entropy_pow = compute_detached_uncertainty_metrics(final_y_logits, targets)
         metrics_to_aggregate_dict['final_p_max'] = (p_max, batch_size)
         metrics_to_aggregate_dict['final_entropy'] = (entropy, batch_size)
         metrics_to_aggregate_dict['final_pow_entropy'] = (entropy_pow, batch_size)
         metrics_to_aggregate_dict['final_margins'] = (margins, batch_size)
-        metrics_to_aggregate_dict['final_ece'] = (ece, batch_size)
+        metrics_to_aggregate_dict['final_ece'] = (average_ece*batch_size, batch_size)
 
     if 'intermediate_logits' in things_of_interest:
         intermediate_logits = things_of_interest['intermediate_logits'] 

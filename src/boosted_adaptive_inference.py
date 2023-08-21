@@ -14,6 +14,7 @@ from log_helper import setup_mlflow
 from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root
 from timm.models import *
 from timm.models import create_model
+from metrics_utils import compute_detached_uncertainty_metrics
 
 from models.register_models import *
 from models.boosted_t2t_vit import Boosted_T2T_ViT
@@ -49,14 +50,14 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
         # for p in range(1, 100):
         for p in range(1, 40):
             print("*********************")
-            _p = torch.FloatTensor(1).fill_(p * 1.0 / 20)
+            _p = torch.FloatTensor(1).fill_(p * 1.0 / 15)
             n_blocks = len(model.module.blocks)
-            probs = torch.exp(torch.log(_p) * torch.range(1, n_blocks))
+            probs = torch.exp(torch.log(_p) * torch.arange(1, n_blocks))
             probs /= probs.sum()
             acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred, val_target, probs, costs_at_exit)
             acc_test, exp_cost, metrics_dict = tester.dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T)
             mlflow_dict = get_ml_flow_dict(metrics_dict)
-            print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}%'.format(acc_val, acc_test, exp_cost))
+            print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}, test ece: {:.2f}% '.format(acc_val, acc_test, exp_cost, metrics_dict['ECE']* 100.0))
             mlflow.log_metrics(mlflow_dict, step=p)
             fout.write('Cost: {}, Test acc {}\n'.format(exp_cost.item(), acc_test))
             # for k, v in metrics_dict.items():
@@ -170,7 +171,7 @@ class Tester(object):
         metrics_dict = {}
         n_stage, n_sample, _ = logits.size()
         max_preds, argmax_preds = logits.max(dim=2, keepdim=False) # take the max logits as confidence
-
+        gated_logits = torch.empty((logits.shape[1],logits.shape[2]))
         acc_rec, exit_count = torch.zeros(n_stage), torch.zeros(n_stage)
         acc, expected_flops = 0, 0
         correct_all = [0 for _ in range(n_stage)]
@@ -185,12 +186,14 @@ class Tester(object):
                 if classifier_pred == target:
                     correct_all[k] += 1
                 if max_preds[k][i].item() >= thresholds[k] and not has_exited: # exit at k
+                    gated_logits[i] = logits[k,i]
                     if target == classifier_pred:
                         acc += 1
                         acc_rec[k] += 1
                     exit_count[k] += 1 # keeps track of number of exits per gate
                     has_exited = True # keep on looping but only for computing correct_all
         acc_all, sample_all = 0, 0
+        _, _, ece, _, _ = compute_detached_uncertainty_metrics(gated_logits, targets)
         for k in range(n_stage):
             _t = exit_count[k] * 1.0 / n_sample
             sample_all += exit_count[k]
@@ -207,7 +210,7 @@ class Tester(object):
         acc = acc * 100.0 / n_sample
         metrics_dict['ACC'] = acc
         metrics_dict['EXPECTED_FLOPS'] = expected_flops.item()
-
+        metrics_dict['ECE'] = ece
         return acc * 100.0 / n_sample, expected_flops, metrics_dict
 
 def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_size):

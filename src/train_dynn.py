@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
                     choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14'],
-                    default='t2t_vit_7', help='model to train'
+                    default='t2t_vit_7_boosted', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
@@ -62,14 +62,18 @@ if args.barely_train:
 gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
 
 if args.use_mlflow:
-    name = "_".join([
-        str(a) for a in [
-            args.model, args.ce_ic_tradeoff, args.gate,
-            args.gate_training_scheme, f'{"WEIGHTED" if args.weighted else "SURR"}'
-        ]
-    ])
+    if 'boosted' in args.arch:
+        name = 'boosted'
+    elif 'baseline' in args.arch:
+        name = 'baseline'
+    else:
+        name = "_".join([
+            str(a) for a in [args.ce_ic_tradeoff, args.gate,
+                args.gate_training_scheme, f'{"WEIGHTED" if args.weighted else "SURR"}'
+            ]
+        ])
     cfg = vars(args)
-    setup_mlflow(name, cfg, experiment_name='weighted_vs_unweighted')
+    setup_mlflow(name, cfg, experiment_name='calibration')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -153,7 +157,7 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
 
 
 if isinstance(net.module, Boosted_T2T_ViT):
-    for epoch in range(start_epoch, start_epoch + args.num_epoch):
+    for epoch in range(0, args.num_epoch):
         train_boosted(args, net, device, train_loader, optimizer, epoch)
         accs = test_boosted(args, net, test_loader, epoch)
         #stored_metrics_test = test(epoch)
@@ -183,8 +187,8 @@ else:
     learning_helper = LearningHelper(net, optimizer, args)
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
     for epoch in range(1, args.num_epoch):
-        stored_metrics_train = train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-        stored_metrics_test = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
         fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
 
