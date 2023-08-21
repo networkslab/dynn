@@ -145,15 +145,17 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
 
     if 'gated_y_logits' in things_of_interest:
         gated_y_logits = things_of_interest['gated_y_logits']
+        _, _ , average_ece ,_ ,_ = compute_detached_uncertainty_metrics(gated_y_logits, targets)
         _, predicted = gated_y_logits.max(1)
         metrics_to_aggregate_dict['gated_correct_count'] = (predicted.eq(targets).sum().item(), batch_size)
+        metrics_to_aggregate_dict['gated_ece_count'] = (100.0*average_ece*batch_size, batch_size)
 
     if 'num_exits_per_gate' in things_of_interest:
         num_exits_per_gate = things_of_interest['num_exits_per_gate']
         gated_y_logits = things_of_interest['gated_y_logits']
         _, predicted = gated_y_logits.max(1)
         total_cost = compute_cost(num_exits_per_gate, gates_count)
-        metrics_to_aggregate_dict['total_cost'] = (total_cost, batch_size)
+        metrics_to_aggregate_dict['total_cost'] = (total_cost*100.0, batch_size)
     if 'sample_exit_level_map' in things_of_interest:
 
         correct_number_per_gate_batch = compute_correct_number_per_gate(
