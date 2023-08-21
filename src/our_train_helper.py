@@ -11,6 +11,7 @@ from log_helper import log_aggregate_metrics_mlflow
 from utils import  progress_bar
 from early_exit_utils import switch_training_phase
 from models.t2t_vit import TrainingPhase
+from plasticity_analysis.plasticity_metrics_utility import get_network_weight_norm_dict
 
 
 def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
@@ -49,6 +50,7 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
                     metrics_dict = {}
                     training_phase = switch_training_phase(training_phase)
             loss, things_of_interest = helper.get_surrogate_loss(inputs, targets, training_phase)
+        weight_norm_metrics = get_network_weight_norm_dict(helper.net.module)
         loss.backward()
         helper.optimizer.step()
         
@@ -58,13 +60,14 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
         
         # keep track of the average metrics
         metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G) 
-        
+
         # format the metric ready to be displayed
         log_dict = log_aggregate_metrics_mlflow(
                 prefix_logger='train',
                 metrics_dict=metrics_dict, gates_count=args.G) 
 
         if args.use_mlflow:
+            log_dict = log_dict | weight_norm_metrics
             mlflow.log_metrics(log_dict,
                                 step=batch_idx +
                                 (epoch * len(train_loader)))
@@ -82,11 +85,13 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
                 return metrics_dict
 
     return metrics_dict
-    
-    
+
+
+
 def test(best_acc, args, helper: LearningHelper, device, test_loader, epoch, freeze_classifier_with_val=False):
     helper.net.eval()
     metrics_dict = {}
+    
     for batch_idx, (inputs, targets) in enumerate(test_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         batch_size = targets.size(0)

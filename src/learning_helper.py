@@ -1,6 +1,6 @@
 import torch
 from metrics_utils import check_hamming_vs_acc
-from models.t2t_vit import TrainingPhase, Boosted_T2T_ViT, GateSelectionMode
+from models.t2t_vit import TrainingPhase
 from torch import nn
 import numpy as np
 from models.classifier_training_helper import LossContributionMode, ClassifierTrainingHelper
@@ -19,12 +19,13 @@ class LearningHelper:
 
     def _init_classifier_training_helper(self, args) -> None:
         gate_selection_mode = args.gate_selection_mode
-        loss_contribution_mode = LossContributionMode.WEIGHTED if args.weighted_class_loss else LossContributionMode.SINGLE
+        loss_contribution_mode = LossContributionMode.WEIGHTED if args.weighted else LossContributionMode.SINGLE
         self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, loss_contribution_mode)
     
     def _init_gate_training_helper(self, args) -> None:
         gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
         self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme, args.gate_objective)
+    
 
     def get_surrogate_loss(self, inputs, targets, training_phase=None):
         if self.net.training:
@@ -34,22 +35,36 @@ class LearningHelper:
             elif training_phase == TrainingPhase.GATE:
                 return self.gate_training_helper.get_loss(inputs, targets)
         else:
-            classifier_loss, things_of_interest = self.classifier_training_helper.get_loss(inputs, targets)
-            gate_loss, things_of_interest_gate = self.gate_training_helper.get_loss(inputs, targets)
-            loss = (gate_loss + classifier_loss) / 2
-            things_of_interest.update(things_of_interest_gate)
-            return loss, things_of_interest
-        
+            with torch.no_grad():
+                classifier_loss, things_of_interest = self.classifier_training_helper.get_loss(inputs, targets)
+                gate_loss, things_of_interest_gate = self.gate_training_helper.get_loss(inputs, targets)
+                loss = (gate_loss + classifier_loss) / 2
+                things_of_interest.update(things_of_interest_gate)
+                return loss, things_of_interest
+
+
     def get_warmup_loss(self, inputs, targets):
-        self.optimizer.zero_grad()
         criterion = nn.CrossEntropyLoss()
-        final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
-        loss = criterion(
-            final_logits,
-            targets)  # the grad_fn of this loss should be None if frozen
-        for intermediate_logit in intermediate_logits:
-            intermediate_loss = criterion(intermediate_logit, targets)
-            loss += intermediate_loss
+        if self.net.training:
+            self.optimizer.zero_grad()
+            
+            final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
+            loss = criterion(
+                final_logits,
+                targets)  # the grad_fn of this loss should be None if frozen
+            for intermediate_logit in intermediate_logits:
+                intermediate_loss = criterion(intermediate_logit, targets)
+                loss += intermediate_loss
+        else:
+            with torch.no_grad():
+                final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
+                loss = criterion(
+                    final_logits,
+                    targets)  # the grad_fn of this loss should be None if frozen
+                for intermediate_logit in intermediate_logits:
+                    intermediate_loss = criterion(intermediate_logit, targets)
+                    loss += intermediate_loss
+
         things_of_interest = {
             'intermediate_logits': intermediate_logits,
             'final_logits': final_logits}
