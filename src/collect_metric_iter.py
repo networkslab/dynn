@@ -63,7 +63,7 @@ def aggregate_metrics(metrics_to_aggregate_dict, metrics_dict, gates_count):
         else: # add the new value based on the type of the variable
             metric = metric_total_tuple[0]
             batch_size = metric_total_tuple[1]
-            total =  metrics_dict[metric_key][1] + batch_size
+            total = metrics_dict[metric_key][1] + batch_size
             if type(metric) is list:
                 if len(metric) == gates_count and 'per_gate' in metric_key: # we maintain 
                     aggregated_metric= []
@@ -172,7 +172,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
         exit_count_optimal_gate = things_of_interest['exit_count_optimal_gate']
         correct_exit_count = things_of_interest['correct_exit_count']
         metrics_to_aggregate_dict['exit_count_optimal_gate'] = (exit_count_optimal_gate, batch_size)
-        metrics_to_aggregate_dict['correct_exit_count'] = (correct_exit_count, batch_size*(gates_count+1)) # the correct count is over all gates
+        metrics_to_aggregate_dict['correct_exit_count'] = (correct_exit_count, batch_size * gates_count) # the correct count is over all gates
     return metrics_to_aggregate_dict
 
 def compute_correct_number_per_gate(number_of_gates: int,
