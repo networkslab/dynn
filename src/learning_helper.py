@@ -52,9 +52,11 @@ class LearningHelper:
             loss = criterion(
                 final_logits,
                 targets)  # the grad_fn of this loss should be None if frozen
+            i = len(intermediate_logits)+1
             for intermediate_logit in intermediate_logits:
                 intermediate_loss = criterion(intermediate_logit, targets)
-                loss += intermediate_loss
+                loss += i*intermediate_loss
+                i-=1
         else:
             with torch.no_grad():
                 final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
