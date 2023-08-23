@@ -90,13 +90,15 @@ class ClassifierTrainingHelper:
         sample_exit_level_map[final_gate_exit.flatten().nonzero()] = len(self.net.module.intermediate_heads)
         num_exits_per_gate.append(torch.sum(final_gate_exit))
         gated_y_logits = gated_y_logits + torch.mul(final_gate_exit, final_logits) # last gate
+        p_exit_at_gate_T = torch.concatenate(p_exit_at_gate_list, dim=1)
         things_of_interest = {
             'intermediate_logits':intermediate_logits,
             'final_logits':final_logits,
             'num_exits_per_gate':num_exits_per_gate,
             'gated_y_logits': gated_y_logits,
             'sample_exit_level_map': sample_exit_level_map,
-            'gated_y_logits': gated_y_logits}
+            'gated_y_logits': gated_y_logits,
+            'p_exit_at_gate':p_exit_at_gate_T}
         loss = 0
         if self.loss_contribution_mode == LossContributionMode.SINGLE:
             loss = self._compute_single_loss(gated_y_logits, targets)

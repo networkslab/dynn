@@ -120,7 +120,15 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
             correct_gate = predicted_inter.eq(targets)
             metrics_to_aggregate_dict['correct_per_gate'][0][g] = correct_gate.sum().item()
             # ensembling
-            ens_logits = torch.mean(torch.cat([intermediate_logits[i][:,:,None] for i in range(g+1)], dim=2), dim=2)
+            logits_up_to_g = torch.cat([intermediate_logits[i][:,:,None] for i in range(g+1)], dim=2) 
+            if 'p_exit_at_gate' in things_of_interest: # we compute the ensembling with weighted by prob of exit
+                logits_up_to_g = torch.permute(logits_up_to_g, (1, 0, 2))  
+                weighted_logits_up_to_g = logits_up_to_g * things_of_interest['p_exit_at_gate'][:,:g+1] 
+                weighted_logits_up_to_g = torch.permute(weighted_logits_up_to_g, (1,0, 2)) 
+                ens_logits = torch.mean(weighted_logits_up_to_g, dim=2)
+            else:
+                ens_logits = torch.mean(logits_up_to_g, dim=2)
+            
             _, ens_predicted_inter = ens_logits.max(1)
             ens_correct_gate = ens_predicted_inter.eq(targets)
             metrics_to_aggregate_dict['ens_correct_per_gate'][0][g] = ens_correct_gate.sum().item()
