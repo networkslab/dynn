@@ -12,6 +12,7 @@ from boosted_training_helper import test_boosted, train_boosted
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 from log_helper import setup_mlflow
+from models.classifier_training_helper import LossContributionMode
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
 from our_train_helper import test, train_single_epoch
@@ -35,22 +36,22 @@ parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=1,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
-parser.add_argument('--warmup_batch_count',default=500,type=int,help='number of batches for warmup where all classifier are trained')
+parser.add_argument('--warmup_batch_count',default=800,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
-parser.add_argument('--gate',type=GateType,default=GateType.CODE_AND_UNC,choices=GateType)  # unc, code, code_and_unc
+parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
-parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.Prob, choices=GateObjective)
+parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.CrossEntropy, choices=GateObjective)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT', help='Gate training scheme (how to handle gates after first exit)',
     choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True, help='Store the run with mlflow')
-parser.add_argument('--weighted', action=argparse.BooleanOptionalAction, default=True, help='How to compute loss of classifiers')# pass --weighted or --no-weighted
+parser.add_argument('--classifier_loss', type=LossContributionMode, default=LossContributionMode.WEIGHTED, choices=LossContributionMode)
 args = parser.parse_args()
 
 fix_the_seed(seed=322)
@@ -67,13 +68,9 @@ if args.use_mlflow:
     elif 'baseline' in args.arch:
         name = 'baseline'
     else:
-        name = "_".join([
-            str(a) for a in [args.ce_ic_tradeoff, args.gate,
-                args.gate_training_scheme, f'{"WEIGHTED" if args.weighted else "SURR"}'
-            ]
-        ])
+        name = "_".join([ str(a) for a in [args.ce_ic_tradeoff, args.classifier_loss]])
     cfg = vars(args)
-    setup_mlflow(name, cfg, experiment_name='calibration')
+    setup_mlflow(name, cfg, experiment_name='compare_acc_boosted')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -186,10 +183,15 @@ else:
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args)
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+    #test(best_acc, args, learning_helper, device, test_loader, epoch=0, freeze_classifier_with_val=False)
     for epoch in range(1, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        if epoch == args.num_epoch-1: # at the last epoch, we do a warmup again
+            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+    
+        else:
+            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
         test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
-        fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
+        #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
 
 mlflow.end_run()

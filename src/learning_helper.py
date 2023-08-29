@@ -19,12 +19,13 @@ class LearningHelper:
 
     def _init_classifier_training_helper(self, args) -> None:
         gate_selection_mode = args.gate_selection_mode
-        loss_contribution_mode = LossContributionMode.WEIGHTED if args.weighted else LossContributionMode.SINGLE
-        self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, loss_contribution_mode)
+        self.loss_contribution_mode = args.classifier_loss 
+        self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, self.loss_contribution_mode)
     
     def _init_gate_training_helper(self, args) -> None:
         gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
         self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme, args.gate_objective)
+    
     
 
     def get_surrogate_loss(self, inputs, targets, training_phase=None):
@@ -45,7 +46,13 @@ class LearningHelper:
 
     def get_warmup_loss(self, inputs, targets):
         criterion = nn.CrossEntropyLoss()
-        if self.net.training:
+        if self.loss_contribution_mode == LossContributionMode.BOOSTED:
+            self.optimizer.zero_grad()
+            final_logits, intermediate_logits, _ = self.net(inputs)
+            loss = self.classifier_training_helper._compute_boosted_loss(intermediate_logits, targets)
+            
+        else:
+            
             self.optimizer.zero_grad()
             
             final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
@@ -55,15 +62,7 @@ class LearningHelper:
             for intermediate_logit in intermediate_logits:
                 intermediate_loss = criterion(intermediate_logit, targets)
                 loss += intermediate_loss
-        else:
-            with torch.no_grad():
-                final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
-                loss = criterion(
-                    final_logits,
-                    targets)  # the grad_fn of this loss should be None if frozen
-                for intermediate_logit in intermediate_logits:
-                    intermediate_loss = criterion(intermediate_logit, targets)
-                    loss += intermediate_loss
+            
 
         things_of_interest = {
             'intermediate_logits': intermediate_logits,
