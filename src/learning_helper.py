@@ -48,8 +48,17 @@ class LearningHelper:
         criterion = nn.CrossEntropyLoss()
         if self.loss_contribution_mode == LossContributionMode.BOOSTED:
             self.optimizer.zero_grad()
-            final_logits, intermediate_logits, _ = self.net(inputs)
-            loss = self.classifier_training_helper._compute_boosted_loss(intermediate_logits, targets)
+            
+            final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
+            loss = criterion(
+                final_logits,
+                targets)  # the grad_fn of this loss should be None if frozen
+            
+            i = len(intermediate_logits)+1
+            for intermediate_logit in intermediate_logits:
+                intermediate_loss = criterion(intermediate_logit, targets)
+                loss += i*intermediate_loss
+                i-=1
             
         else:
             
@@ -62,6 +71,7 @@ class LearningHelper:
             for intermediate_logit in intermediate_logits:
                 intermediate_loss = criterion(intermediate_logit, targets)
                 loss += intermediate_loss
+           
             
 
         things_of_interest = {

@@ -29,7 +29,7 @@ class ClassifierTrainingHelper:
         elif self.loss_contribution_mode == LossContributionMode.SINGLE:
             self.classifier_criterion = nn.CrossEntropyLoss()
         elif self.loss_contribution_mode == LossContributionMode.BOOSTED:
-            self.classifier_criterion = nn.CrossEntropyLoss()
+            self.classifier_criterion = nn.CrossEntropyLoss(reduction='none')
 
     def _compute_boosted_loss(self, x, targets):
     
@@ -106,9 +106,9 @@ class ClassifierTrainingHelper:
         
             no_exit_previous_gates_prob = torch.prod(1 - prob_gates, axis=1)[:,None] # prod (1-g)
             
-            if self.loss_contribution_mode in [ LossContributionMode.SINGLE, LossContributionMode.BOOSTED]:
+            if self.loss_contribution_mode == LossContributionMode.SINGLE:
                 current_gate_activation_prob = torch.clip(g/no_exit_previous_gates_prob, min=0, max=1)
-            elif self.loss_contribution_mode == LossContributionMode.WEIGHTED:
+            elif self.loss_contribution_mode in [ LossContributionMode.WEIGHTED, LossContributionMode.BOOSTED]:
                 sum_previous_gs = torch.sum(G, dim=1)[:, None]
                 p_exit_at_gate = torch.max(torch.zeros((targets.shape[0], 1)).to(inputs.device), torch.min(g, 1 - sum_previous_gs))
                 p_exit_at_gate_list.append(p_exit_at_gate)
@@ -149,10 +149,11 @@ class ClassifierTrainingHelper:
         loss = 0
         if self.loss_contribution_mode == LossContributionMode.SINGLE:
             loss = self._compute_single_loss(gated_y_logits, targets)
-        elif self.loss_contribution_mode == LossContributionMode.WEIGHTED:
+        elif self.loss_contribution_mode ==  LossContributionMode.WEIGHTED:
             loss = self._compute_weighted_loss(p_exit_at_gate_list, loss_per_gate_list)
         elif self.loss_contribution_mode == LossContributionMode.BOOSTED:
-            loss = self._compute_boosted_loss(intermediate_logits, targets)
+            loss = self._compute_weighted_loss(p_exit_at_gate_list, loss_per_gate_list)
+            #loss = self._compute_boosted_loss(intermediate_logits, targets)
         else:
             raise InvalidLossContributionModeException('Ca marche pas ton affaire')
  
