@@ -33,7 +33,7 @@ parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
-parser.add_argument('--ce_ic_tradeoff',default=2,type=float,help='cost inference and cross entropy loss tradeoff')
+parser.add_argument('--ce_ic_tradeoff',default=0.1,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
 parser.add_argument('--warmup_batch_count',default=800,type=int,help='number of batches for warmup where all classifier are trained')
@@ -70,7 +70,7 @@ if args.use_mlflow:
     else:
         name = "_".join([ str(a) for a in [args.ce_ic_tradeoff, args.classifier_loss]])
     cfg = vars(args)
-    setup_mlflow(name, cfg, experiment_name='compare_acc_boosted')
+    setup_mlflow(name, cfg, experiment_name='fix_gate_problem')
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
@@ -183,10 +183,10 @@ else:
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args)
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-    #test(best_acc, args, learning_helper, device, test_loader, epoch=0, freeze_classifier_with_val=False)
+    metrics_dict, best_acc = test(best_acc, args, learning_helper, device, test_loader, epoch=0, freeze_classifier_with_val=False)
     for epoch in range(1, args.num_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-        test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        metrics_dict, best_acc = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
         #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
 

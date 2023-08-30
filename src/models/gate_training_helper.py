@@ -135,7 +135,8 @@ class GateTrainingHelper:
         # compute gate accuracies
         actual_exits_binary = torch.nn.functional.sigmoid(gate_logits) >= 0.5
         correct_exit_count += accuracy_score(actual_exits_binary.flatten().cpu(), hot_encode_subsequent.double().flatten().cpu(), normalize=False)
-        gate_loss = torch.mean(gate_loss * flat_multiplier_per_gate)
+        #gate_loss = torch.mean(gate_loss * flat_multiplier_per_gate)
+        gate_loss = torch.mean(gate_loss)
         # things_of_interest = things_of_interest | {'intermediate_logits': intermediate_logits, 'final_logits':final_logits, 'correct_exit_count': correct_exit_count}
         return gate_loss, correct_exit_count
     
