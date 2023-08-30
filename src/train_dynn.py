@@ -41,7 +41,7 @@ parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
-parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
+parser.add_argument('--gate',type=GateType,default=GateType.CODE_AND_UNC,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
 parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.CrossEntropy, choices=GateObjective)
@@ -51,7 +51,7 @@ parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT', help='Ga
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True, help='Store the run with mlflow')
-parser.add_argument('--classifier_loss', type=LossContributionMode, default=LossContributionMode.WEIGHTED, choices=LossContributionMode)
+parser.add_argument('--classifier_loss', type=LossContributionMode, default=LossContributionMode.BOOSTED, choices=LossContributionMode)
 args = parser.parse_args()
 
 fix_the_seed(seed=322)
@@ -185,11 +185,7 @@ else:
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
     #test(best_acc, args, learning_helper, device, test_loader, epoch=0, freeze_classifier_with_val=False)
     for epoch in range(1, args.num_epoch):
-        if epoch == args.num_epoch-1: # at the last epoch, we do a warmup again
-            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-    
-        else:
-            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
         test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
         #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()

@@ -114,14 +114,18 @@ class GateTrainingHelper:
         gate_loss = self.gate_criterion(gate_logits.flatten(), hot_encode_subsequent.double().flatten())
         # addressing the class imbalance avec classe
         # we have one classifier per gate, so we have to compute one weight ratio per gate
-        num_ones_per_gate = torch.sum(hot_encode_subsequent, dim=0) 
+        num_ones_per_gate = torch.sum(hot_encode_subsequent, dim=0).double()
         # add a check up to make sure we have at least 1 ones. If not, add one at random to avoid nan issue
-        if torch.sum(num_ones_per_gate) < 1:
+        #print(num_ones_per_gate)
+        if torch.sum(num_ones_per_gate) < 1: 
             print('Warning, this batch is pushing everything to the last gate')
             hot_encode_subsequent[random.choice(range(hot_encode_subsequent.shape[0])),-1] = 1 # place it at the second last gate for some random point
             num_ones_per_gate = torch.sum(hot_encode_subsequent, dim=0)
             assert torch.sum(num_ones_per_gate) == 1
+        
         num_zeros_per_gates = -num_ones_per_gate + hot_encode_subsequent.shape[0]
+        num_ones_per_gate[num_ones_per_gate==0] = 0.1
+        num_zeros_per_gates[num_zeros_per_gates==0] = 0.1
         zero_to_one_per_gate = num_zeros_per_gates / num_ones_per_gate
         
         ones_loss_multiplier_per_gate = hot_encode_subsequent * zero_to_one_per_gate # balances ones
