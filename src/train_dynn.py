@@ -15,7 +15,7 @@ from log_helper import setup_mlflow
 from models.classifier_training_helper import LossContributionMode
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
-from our_train_helper import test, train_single_epoch
+from our_train_helper import set_from_validation, evaluate, train_single_epoch
 from threshold_helper import fixed_threshold_test
 from utils import fix_the_seed
 from models.register_models import *
@@ -41,7 +41,7 @@ parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
-parser.add_argument('--gate',type=GateType,default=GateType.CODE_AND_UNC,choices=GateType)  # unc, code, code_and_unc
+parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
 parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
 parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.CrossEntropy, choices=GateObjective)
@@ -70,8 +70,10 @@ if args.use_mlflow:
     else:
         name = "_".join([ str(a) for a in [args.ce_ic_tradeoff, args.classifier_loss]])
     cfg = vars(args)
-    setup_mlflow(name, cfg, experiment_name='fix_gate_problem')
-
+    if args.barely_train:
+        setup_mlflow(name, cfg, experiment_name='test run')
+    else:
+        setup_mlflow(name, cfg, experiment_name='compare_acc_boosted')
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy
@@ -170,24 +172,31 @@ if isinstance(net.module, Boosted_T2T_ViT):
     torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
 
 elif 'baseline' in args.arch: # only training with warmup
-    learning_helper = LearningHelper(net, optimizer, args)
+    learning_helper = LearningHelper(net, optimizer, args, device)
     
     for epoch in range(0, args.num_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-        #stored_metrics_test = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        #stored_metrics_test = evaluate(best_acc, args, learning_helper, device, test_loader, epoch)
         fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
 
 else:
     
     # start with warm up for the first epoch
-    learning_helper = LearningHelper(net, optimizer, args)
+    learning_helper = LearningHelper(net, optimizer, args, device)
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-    metrics_dict, best_acc = test(best_acc, args, learning_helper, device, test_loader, epoch=0, freeze_classifier_with_val=False)
+    val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=0, prefix_logger='val')
+    set_from_validation(learning_helper, val_metrics_dict)
+    evaluate(best_acc, args, learning_helper, device, test_loader, epoch=0, prefix_logger='test')
     for epoch in range(1, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-        metrics_dict, best_acc = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
-        #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
+        if epoch ==args.num_epoch-1:
+            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        else:
+            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        #val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, prefix_logger='val')
+        evaluate(best_acc, args, learning_helper, device, test_loader, epoch, prefix_logger='test')
+        set_from_validation(learning_helper, val_metrics_dict)
+        fixed_threshold_test(args,learning_helper, device, test_loader, val_loader) # this can make gpu run OOM
         scheduler.step()
-
+    
 mlflow.end_run()

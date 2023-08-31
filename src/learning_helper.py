@@ -11,20 +11,20 @@ criterion = nn.CrossEntropyLoss()
 COMPUTE_HAMMING = False
 
 class LearningHelper:
-    def __init__(self, net, optimizer, args) -> None:
+    def __init__(self, net, optimizer, args, device) -> None:
         self.net = net
         self.optimizer = optimizer
         self._init_classifier_training_helper(args)
-        self._init_gate_training_helper(args)
+        self._init_gate_training_helper(args, device)
 
     def _init_classifier_training_helper(self, args) -> None:
         gate_selection_mode = args.gate_selection_mode
         self.loss_contribution_mode = args.classifier_loss 
         self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, self.loss_contribution_mode)
     
-    def _init_gate_training_helper(self, args) -> None:
+    def _init_gate_training_helper(self, args, device) -> None:
         gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
-        self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme, args.gate_objective)
+        self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme, args.gate_objective, args.G, device)
     
     
 

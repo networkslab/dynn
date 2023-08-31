@@ -1,3 +1,4 @@
+from telnetlib import GA
 import torch
 import torch.nn as nn
 from metrics_utils import check_hamming_vs_acc
@@ -10,6 +11,7 @@ gradient_rescale = GradientRescaleFunction.apply
 class GateSelectionMode(Enum):
     PROBABILISTIC = 'prob'
     DETERMINISTIC = 'det'
+    FIXEDRATIO = 'fixed'
 
 class LossContributionMode(Enum):
     SINGLE = 'single' # a sample contributes to the loss at a single classifier
@@ -30,7 +32,8 @@ class ClassifierTrainingHelper:
             self.classifier_criterion = nn.CrossEntropyLoss()
         elif self.loss_contribution_mode == LossContributionMode.BOOSTED:
             self.classifier_criterion = nn.CrossEntropyLoss(reduction='none')
-
+    def set_thresh_quantiles(self, thresh_quantiles):
+        self.thresh_quantiles = thresh_quantiles
     def _compute_boosted_loss(self, x, targets):
     
         preds, pred_ensembles = self.boosted_forward_all(x)
@@ -123,7 +126,8 @@ class ClassifierTrainingHelper:
                 do_exit = torch.bernoulli(current_gate_activation_prob)
             elif self.gate_selection_mode == GateSelectionMode.DETERMINISTIC:
                 do_exit = current_gate_activation_prob >= 0.5
-            
+            elif self.gate_selection_mode == GateSelectionMode.FIXEDRATIO:
+                do_exit = current_gate_activation_prob >= self.thresh_quantiles[l]
             current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
             current_exit_index = current_exit.flatten().nonzero()
             sample_exit_level_map[current_exit_index] = l

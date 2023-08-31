@@ -78,7 +78,7 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
         # if training_phase == TrainingPhase.WARMUP and batch_idx > warmup_batch_count:
         #     return metrics_dict
         if args.barely_train:
-            if batch_idx > 50:
+            if batch_idx > 20:
                 print(
                     '++++++++++++++WARNING++++++++++++++ you are barely training to test some things'
                 )
@@ -88,11 +88,11 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
 
 
 
-def test(best_acc, args, helper: LearningHelper, device, test_loader, epoch, freeze_classifier_with_val=False):
+def evaluate(best_acc, args, helper: LearningHelper, device, loader, epoch, prefix_logger: str):
     helper.net.eval()
     metrics_dict = {}
     
-    for batch_idx, (inputs, targets) in enumerate(test_loader):
+    for batch_idx, (inputs, targets) in enumerate(loader):
         inputs, targets = inputs.to(device), targets.to(device)
         batch_size = targets.size(0)
 
@@ -106,9 +106,9 @@ def test(best_acc, args, helper: LearningHelper, device, test_loader, epoch, fre
         
         # format the metric ready to be displayed
         log_dict = log_aggregate_metrics_mlflow(
-                prefix_logger='test',
+                prefix_logger=prefix_logger,
                 metrics_dict=metrics_dict, gates_count=args.G) 
-        display_progress_bar(prefix_logger='test',training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(test_loader), log_dict=log_dict)
+        display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
 
         if args.barely_train:
                 if batch_idx > 50:
@@ -116,19 +116,9 @@ def test(best_acc, args, helper: LearningHelper, device, test_loader, epoch, fre
                         '++++++++++++++WARNING++++++++++++++ you are barely testing to test some things'
                     )
                     break
-        # TODO add metric for validation and early stopping
-        # if freeze_classifier_with_val:
-        #     for idx in range(args.G):
-        #         classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
-        #         accuracy_tracker = net.module.accuracy_trackers[idx]
-        #         if accuracy_tracker.should_freeze(classifier_accuracy):
-        #             net.module.freeze_intermediate_classifier(idx)
-        #             print(f"FREEZING CLASSIFIER {idx}")
-        #         else:
-        #             accuracy_tracker.insert_acc(classifier_accuracy)
-        
+       
 
-    gated_acc = log_dict['test/gated_acc']
+    gated_acc = log_dict[prefix_logger+'/gated_acc']
     # Save checkpoint.
     if gated_acc > best_acc:
         print('Saving..')
@@ -145,8 +135,40 @@ def test(best_acc, args, helper: LearningHelper, device, test_loader, epoch, fre
         )
         best_acc = gated_acc
     if args.use_mlflow:
-        log_dict['best/test_acc']= gated_acc
+        log_dict[prefix_logger+'/test_acc']= gated_acc
         mlflow.log_metrics(log_dict, step=epoch)
     return metrics_dict, best_acc
 
-
+# Any action based on the validation set
+def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False):
+   
+    # we fix the 1/0 ratios of of gate tasks based on the optimal percent exit in the validation sets
+    
+    exit_count_optimal_gate = val_metrics_dict['exit_count_optimal_gate'] # ({0: 0, 1: 0, 2: 0, 3: 0, 4: 6, 5: 72}, 128)
+    total = exit_count_optimal_gate[1]
+    pos_weights = []
+    
+    for gate, count in exit_count_optimal_gate[0].items():
+        if count == 0:
+            count = 0.1 # if the count is zero
+        pos_weight = total/count
+        if pos_weight > 5: # cap at 5x
+            pos_weight = 5
+        pos_weights.append(pos_weight)
+        
+    print(pos_weights)
+    learning_helper.gate_training_helper.set_ratios(pos_weights)
+    
+    
+    #learning_helper.gate_training_helper.set_ratios(pos_weights)
+    # TODO add metric for validation and early stopping
+    # if freeze_classifier_with_val:
+    #     for idx in range(args.G):
+    #         classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
+    #         accuracy_tracker = net.module.accuracy_trackers[idx]
+    #         if accuracy_tracker.should_freeze(classifier_accuracy):
+    #             net.module.freeze_intermediate_classifier(idx)
+    #             print(f"FREEZING CLASSIFIER {idx}")
+    #         else:
+    #             accuracy_tracker.insert_acc(classifier_accuracy)
+        
