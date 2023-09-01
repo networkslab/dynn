@@ -1,12 +1,6 @@
-from telnetlib import GA
 import torch
 import torch.nn as nn
-from metrics_utils import check_hamming_vs_acc
-
 from enum import Enum
-
-from models.gradient_rescale import GradientRescaleFunction
-gradient_rescale = GradientRescaleFunction.apply
 
 class GateSelectionMode(Enum):
     PROBABILISTIC = 'prob'
@@ -26,64 +20,16 @@ class ClassifierTrainingHelper:
         self.net = net
         self.gate_selection_mode = gate_selection_mode
         self.loss_contribution_mode = loss_contribution_mode
+        
+        # boosted loss behaves as weighted
+        if self.loss_contribution_mode == LossContributionMode.BOOSTED: 
+            self.loss_contribution_mode = LossContributionMode.WEIGHTED
+        
         if self.loss_contribution_mode == LossContributionMode.WEIGHTED:
             self.classifier_criterion = nn.CrossEntropyLoss(reduction='none')
         elif self.loss_contribution_mode == LossContributionMode.SINGLE:
             self.classifier_criterion = nn.CrossEntropyLoss()
-        elif self.loss_contribution_mode == LossContributionMode.BOOSTED:
-            self.classifier_criterion = nn.CrossEntropyLoss(reduction='none')
-    def set_thresh_quantiles(self, thresh_quantiles):
-        self.thresh_quantiles = thresh_quantiles
-    def _compute_boosted_loss(self, x, targets):
-    
-        preds, pred_ensembles = self.boosted_forward_all(x)
-        loss_all = 0
-        for g, logits in enumerate(preds):
-            # train weak learner
-            # fix F
-            with torch.no_grad():
-                out = pred_ensembles[g]
-                out = out.detach()
-            loss = self.classifier_criterion(logits[g] + out, targets)
-            loss_all = loss_all + loss
-        return loss_all
-
-
-    def boosted_forward_all(self, x, stage=None): # from forward_all in dynamic net which itself calls forward (boosted_forward in our case)
-        """Forward the model until block `stage` and get a list of ensemble predictions
-        """
         
-        outs = self.boosted_forward(x)
-        preds = [0]
-        for i in range(len(outs)):
-            pred = (outs[i] + preds[-1]) * self.ensemble_reweight[i]
-            preds.append(pred)
-            if i == stage:
-                break
-        return outs, preds
-
-    def boosted_forward(self, x): # Equivalent of forward in msdnet with gradient rescaling.
-        res = []
-        nBlocks = len(self.blocks)
-        B = x.shape[0]
-        x = self.tokens_to_token(x)
-        cls_tokens = self.cls_token.expand(B, -1, -1)
-        x = torch.cat((cls_tokens, x), dim=1)
-        x = x + self.pos_embed
-        x = self.pos_drop(x)
-
-        for blk_idx, blk in enumerate(self.blocks):
-            x, _ = blk.forward_get_code(x)
-            x[-1] = gradient_rescale(x[-1], 1.0 / (nBlocks - blk_idx))
-            normalized = self.norm(x)
-            if blk_idx < len(self.intermediate_heads): # intermediate block
-                pred = self.intermediate_heads[blk_idx](normalized[:, 0])
-            else:
-                pred = self.head(normalized[:, 0]) # last block
-            x[-1] = gradient_rescale(x[-1], (nBlocks - blk_idx - 1))
-            res.append(pred)
-        return res
-
 
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor, compute_hamming = False):
         intermediate_logits = [] # logits from the intermediate classifiers
@@ -111,7 +57,7 @@ class ClassifierTrainingHelper:
             
             if self.loss_contribution_mode == LossContributionMode.SINGLE:
                 current_gate_activation_prob = torch.clip(g/no_exit_previous_gates_prob, min=0, max=1)
-            elif self.loss_contribution_mode in [ LossContributionMode.WEIGHTED, LossContributionMode.BOOSTED]:
+            elif self.loss_contribution_mode == LossContributionMode.WEIGHTED:
                 sum_previous_gs = torch.sum(G, dim=1)[:, None]
                 p_exit_at_gate = torch.max(torch.zeros((targets.shape[0], 1)).to(inputs.device), torch.min(g, 1 - sum_previous_gs))
                 p_exit_at_gate_list.append(p_exit_at_gate)
@@ -155,14 +101,8 @@ class ClassifierTrainingHelper:
             loss = self._compute_single_loss(gated_y_logits, targets)
         elif self.loss_contribution_mode ==  LossContributionMode.WEIGHTED:
             loss = self._compute_weighted_loss(p_exit_at_gate_list, loss_per_gate_list)
-        elif self.loss_contribution_mode == LossContributionMode.BOOSTED:
-            loss = self._compute_weighted_loss(p_exit_at_gate_list, loss_per_gate_list)
-            #loss = self._compute_boosted_loss(intermediate_logits, targets)
         else:
             raise InvalidLossContributionModeException('Ca marche pas ton affaire')
- 
-        if compute_hamming:
-            things_of_interest = things_of_interest | self._get_hamming_metrics_dict(intermediate_logits, intermediate_codes, targets)
         return loss, things_of_interest
     
     def _compute_weighted_loss(self, p_exit_at_gate_list, loss_per_gate_list):
@@ -177,13 +117,4 @@ class ClassifierTrainingHelper:
     def _compute_single_loss(self, gated_y_logits, targets):
         return self.classifier_criterion(gated_y_logits, targets)
     
-    def _get_hamming_metrics_dict(self, intermediate_logits, intermediate_codes, targets):
-        if self.net.training:
-            return {}
-        inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets)
-        return {'inc_inc_H_list': inc_inc_H_list,
-            'c_c_H_list': c_c_H_list,
-            'c_inc_H_list': c_inc_H_list,
-            'inc_inc_H_list_std': inc_inc_H_list_std,
-            'c_c_H_list_std': c_c_H_list_std,
-            'c_inc_H_list_std': c_inc_H_list_std}
+   
