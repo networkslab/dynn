@@ -28,8 +28,7 @@ def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
         progress_bar(step, total, 'Gate Loss: %.3f ' % (loss)) 
 
 def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch, training_phase,
-          bilevel_batch_count=20,
-          warmup_batch_count=0):
+          bilevel_batch_count=20):
     print('\nEpoch: %d' % epoch)
     helper.net.train()
 
@@ -74,9 +73,6 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
         
         display_progress_bar('train', training_phase, step=batch_idx, total=len(train_loader), log_dict=log_dict)
         
-        # if we are in warmup phase, we return if finished.
-        # if training_phase == TrainingPhase.WARMUP and batch_idx > warmup_batch_count:
-        #     return metrics_dict
         if args.barely_train:
             if batch_idx > 20:
                 print(

@@ -36,7 +36,6 @@ parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.1,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
-parser.add_argument('--warmup_batch_count',default=800,type=int,help='number of batches for warmup where all classifier are trained')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
@@ -175,7 +174,7 @@ elif 'baseline' in args.arch: # only training with warmup
     learning_helper = LearningHelper(net, optimizer, args, device)
     
     for epoch in range(0, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
         #stored_metrics_test = evaluate(best_acc, args, learning_helper, device, test_loader, epoch)
         fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
@@ -184,15 +183,15 @@ else:
     
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
-    train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+    train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
     val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=0, prefix_logger='val')
     set_from_validation(learning_helper, val_metrics_dict)
     evaluate(best_acc, args, learning_helper, device, test_loader, epoch=0, prefix_logger='test')
     for epoch in range(1, args.num_epoch):
         if epoch ==args.num_epoch-1:
-            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
         else:
-            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
         val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, prefix_logger='val')
         evaluate(best_acc, args, learning_helper, device, test_loader, epoch, prefix_logger='test')
         set_from_validation(learning_helper, val_metrics_dict)
