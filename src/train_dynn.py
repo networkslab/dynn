@@ -188,10 +188,7 @@ else:
     set_from_validation(learning_helper, val_metrics_dict)
     evaluate(best_acc, args, learning_helper, device, test_loader, epoch=0, prefix_logger='test')
     for epoch in range(1, args.num_epoch):
-        if epoch ==args.num_epoch-1:
-            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
-        else:
-            train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
         val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, prefix_logger='val')
         evaluate(best_acc, args, learning_helper, device, test_loader, epoch, prefix_logger='test')
         set_from_validation(learning_helper, val_metrics_dict)
