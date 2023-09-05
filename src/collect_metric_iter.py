@@ -99,7 +99,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
         metrics_to_aggregate_dict['final_entropy'] = (entropy, batch_size)
         metrics_to_aggregate_dict['final_pow_entropy'] = (entropy_pow, batch_size)
         metrics_to_aggregate_dict['final_margins'] = (margins, batch_size)
-        metrics_to_aggregate_dict['final_ece'] = (average_ece*batch_size, batch_size)
+        metrics_to_aggregate_dict['final_ece'] = (average_ece*batch_size*100.0, batch_size)
 
     if 'intermediate_logits' in things_of_interest:
         intermediate_logits = things_of_interest['intermediate_logits'] 
@@ -139,14 +139,14 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
             metrics_to_aggregate_dict['correct_cheating_per_gate'][0][
                 g] = correct_class_cheating.sum().item() # getting all the corrects we can
 
-            p_max, entropy, cal, margins, entropy_pow = compute_detached_uncertainty_metrics(
+            p_max, entropy, average_ece, margins, entropy_pow = compute_detached_uncertainty_metrics(
                 intermediate_logits[g], targets)
             metrics_to_aggregate_dict['list_correct_per_gate'][0][g] = list(free(correct_gate))
             metrics_to_aggregate_dict['margins_per_gate'][0][g] = margins
             metrics_to_aggregate_dict['p_max_per_gate'][0][g] = p_max
             metrics_to_aggregate_dict['entropy_per_gate'][0][g] = entropy
             metrics_to_aggregate_dict['pow_entropy_per_gate'][0][g] = entropy_pow
-            metrics_to_aggregate_dict['ece_per_gate'][0][g] = cal
+            metrics_to_aggregate_dict['ece_per_gate'][0][g] = 100.0*average_ece*batch_size
         correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
         metrics_to_aggregate_dict['cheating_correct'] = (correct_class_cheating.sum().item(), batch_size)
         # TODO the ensembling

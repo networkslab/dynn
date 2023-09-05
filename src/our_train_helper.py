@@ -145,11 +145,9 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     pos_weights = []
     
     for gate, count in exit_count_optimal_gate[0].items():
-        if count == 0:
-            count = 0.1 # if the count is zero
-        pos_weight = total/count
-        if pos_weight > 5: # cap at 5x
-            pos_weight = 5
+        count = max(count, 0.1)
+        pos_weight = total / count
+        pos_weight = min(pos_weight, 5)
         pos_weights.append(pos_weight)
         
     print(pos_weights)

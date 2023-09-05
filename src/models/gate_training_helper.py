@@ -120,9 +120,9 @@ class GateTrainingHelper:
         hot_encode_subsequent = gate_target_one_hot.cumsum(dim=1)
         gate_loss = self.gate_criterion(gate_logits.flatten(), hot_encode_subsequent.double().flatten())
 
-        DIRECTLTY = False
+        IMBALANCE_ON_TRAINING = False
         
-        if DIRECTLTY: # single 1/0 ratio computed directly on the training batch
+        if IMBALANCE_ON_TRAINING: # single 1/0 ratio computed directly on the training batch
             
             # addressing the class imbalance avec classe
             num_ones = torch.sum(hot_encode_subsequent)
