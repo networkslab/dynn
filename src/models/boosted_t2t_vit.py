@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from models.gradient_rescale import GradientRescaleFunction
 from models.t2t_vit import T2T_ViT
 
 # BOOSTED MODEL
@@ -69,21 +70,7 @@ class Boosted_T2T_ViT(T2T_ViT):
         preds = preds[1:]
         return preds
 
-class GradientRescaleFunction(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, input, weight):
-        ctx.save_for_backward(input)
-        ctx.gd_scale_weight = weight
-        output = input
-        return output
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        input = ctx.saved_tensors
-        grad_input = grad_weight = None
-        if ctx.needs_input_grad[0]:
-            grad_input = ctx.gd_scale_weight * grad_output
-        return grad_input, grad_weight
 
 
 gradient_rescale = GradientRescaleFunction.apply

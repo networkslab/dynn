@@ -1,5 +1,4 @@
 import torch
-from metrics_utils import check_hamming_vs_acc
 from models.t2t_vit import TrainingPhase
 from torch import nn
 import numpy as np
@@ -8,23 +7,22 @@ from models.gate_training_helper import GateTrainingScheme, GateTrainingHelper
 
 criterion = nn.CrossEntropyLoss()
 
-COMPUTE_HAMMING = False
-
 class LearningHelper:
-    def __init__(self, net, optimizer, args) -> None:
+    def __init__(self, net, optimizer, args, device) -> None:
         self.net = net
         self.optimizer = optimizer
         self._init_classifier_training_helper(args)
-        self._init_gate_training_helper(args)
+        self._init_gate_training_helper(args, device)
 
     def _init_classifier_training_helper(self, args) -> None:
         gate_selection_mode = args.gate_selection_mode
-        loss_contribution_mode = LossContributionMode.WEIGHTED if args.weighted else LossContributionMode.SINGLE
-        self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, loss_contribution_mode)
+        self.loss_contribution_mode = args.classifier_loss 
+        self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, self.loss_contribution_mode)
     
-    def _init_gate_training_helper(self, args) -> None:
+    def _init_gate_training_helper(self, args, device) -> None:
         gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
-        self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme, args.gate_objective)
+        self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme, args.gate_objective, args.G, device)
+    
     
 
     def get_surrogate_loss(self, inputs, targets, training_phase=None):
@@ -45,42 +43,23 @@ class LearningHelper:
 
     def get_warmup_loss(self, inputs, targets):
         criterion = nn.CrossEntropyLoss()
-        if self.net.training:
-            self.optimizer.zero_grad()
-            
-            final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
-            loss = criterion(
-                final_logits,
-                targets)  # the grad_fn of this loss should be None if frozen
-            i = len(intermediate_logits)+1
+        self.optimizer.zero_grad()
+        final_logits, intermediate_logits, _ = self.net(inputs)
+        loss = criterion(final_logits,targets)  # the grad_fn of this loss should be None if frozen
+        
+        if self.loss_contribution_mode == LossContributionMode.BOOSTED: # our version of boosting is just training early classifier more
+            num_gates = len(intermediate_logits)+1
+            for l, intermediate_logit in enumerate(intermediate_logits):
+                intermediate_loss = criterion(intermediate_logit, targets)
+                loss += (num_gates - l)*intermediate_loss # we scale the gradient by G-l => early gates have bigger gradient
+               
+        else: # plain optimization of all the intermediate classifiers
             for intermediate_logit in intermediate_logits:
                 intermediate_loss = criterion(intermediate_logit, targets)
-                loss += i*intermediate_loss
-                i-=1
-        else:
-            with torch.no_grad():
-                final_logits, intermediate_logits, intermediate_codes = self.net(inputs)
-                loss = criterion(
-                    final_logits,
-                    targets)  # the grad_fn of this loss should be None if frozen
-                for intermediate_logit in intermediate_logits:
-                    intermediate_loss = criterion(intermediate_logit, targets)
-                    loss += intermediate_loss
-
+                loss += intermediate_loss
         things_of_interest = {
             'intermediate_logits': intermediate_logits,
             'final_logits': final_logits}
-        if COMPUTE_HAMMING:
-            inc_inc_H_list, inc_inc_H_list_std, c_c_H_list, c_c_H_list_std,c_inc_H_list,c_inc_H_list_std = check_hamming_vs_acc(
-                intermediate_logits, intermediate_codes, targets)
-            things_of_interest = things_of_interest| {
-                'inc_inc_H_list': inc_inc_H_list,
-                'c_c_H_list': c_c_H_list,
-                'c_inc_H_list': c_inc_H_list,
-                'inc_inc_H_list_std': inc_inc_H_list_std,
-                'c_c_H_list_std': c_c_H_list_std,
-                'c_inc_H_list_std': c_inc_H_list_std
-            }
         return loss, things_of_interest
 
 def freeze_backbone(network, excluded_submodules: list[str]):

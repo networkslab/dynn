@@ -12,9 +12,10 @@ from boosted_training_helper import test_boosted, train_boosted
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 from log_helper import setup_mlflow
+from models.classifier_training_helper import LossContributionMode
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
-from our_train_helper import test, train_single_epoch
+from our_train_helper import set_from_validation, evaluate, train_single_epoch
 from threshold_helper import fixed_threshold_test
 from utils import fix_the_seed
 from models.register_models import *
@@ -32,10 +33,9 @@ parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
-parser.add_argument('--ce_ic_tradeoff',default=1,type=float,help='cost inference and cross entropy loss tradeoff')
+parser.add_argument('--ce_ic_tradeoff',default=0.1,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=6, type=int, help='number of gates')
-parser.add_argument('--num_epoch', default=8, type=int, help='num of epochs')
-parser.add_argument('--warmup_batch_count',default=500,type=int,help='number of batches for warmup where all classifier are trained')
+parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
@@ -50,7 +50,7 @@ parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT', help='Ga
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True, help='Store the run with mlflow')
-parser.add_argument('--weighted', action=argparse.BooleanOptionalAction, default=True, help='How to compute loss of classifiers')# pass --weighted or --no-weighted
+parser.add_argument('--classifier_loss', type=LossContributionMode, default=LossContributionMode.BOOSTED, choices=LossContributionMode)
 args = parser.parse_args()
 
 fix_the_seed(seed=322)
@@ -67,14 +67,12 @@ if args.use_mlflow:
     elif 'baseline' in args.arch:
         name = 'baseline'
     else:
-        name = "_".join([
-            str(a) for a in [args.ce_ic_tradeoff, args.gate,
-                args.gate_training_scheme, f'{"WEIGHTED" if args.weighted else "SURR"}'
-            ]
-        ])
+        name = "_".join([ str(a) for a in [args.ce_ic_tradeoff, args.classifier_loss]])
     cfg = vars(args)
-    setup_mlflow(name, cfg, experiment_name='calibration')
-
+    if args.barely_train:
+        setup_mlflow(name, cfg, experiment_name='test run')
+    else:
+        setup_mlflow(name, cfg, experiment_name='compare_acc_boosted')
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy
@@ -153,14 +151,11 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
                                                        eta_min=args.min_lr,
                                                        T_max=args.num_epoch)
 
-
-
-
 if isinstance(net.module, Boosted_T2T_ViT):
     for epoch in range(0, args.num_epoch):
         train_boosted(args, net, device, train_loader, optimizer, epoch)
         accs = test_boosted(args, net, test_loader, epoch)
-        #stored_metrics_test = test(epoch)
+        # stored_metrics_test = test(epoch)
         scheduler.step()
     state = {
         'state_dict': net.state_dict(),
@@ -173,23 +168,26 @@ if isinstance(net.module, Boosted_T2T_ViT):
     torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
 
 elif 'baseline' in args.arch: # only training with warmup
-    learning_helper = LearningHelper(net, optimizer, args)
+    learning_helper = LearningHelper(net, optimizer, args, device)
     
     for epoch in range(0, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-        #stored_metrics_test = test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
+        #stored_metrics_test = evaluate(best_acc, args, learning_helper, device, test_loader, epoch)
         fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
 
 else:
-    
     # start with warm up for the first epoch
-    learning_helper = LearningHelper(net, optimizer, args)
-    train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
+    learning_helper = LearningHelper(net, optimizer, args, device)
+    train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
+    val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=0, prefix_logger='val')
+    set_from_validation(learning_helper, val_metrics_dict)
+    evaluate(best_acc, args, learning_helper, device, test_loader, epoch=0, prefix_logger='test')
     for epoch in range(1, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count, warmup_batch_count=args.warmup_batch_count)
-        test(best_acc, args, learning_helper, device, test_loader, epoch, freeze_classifier_with_val=False)
-        fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
+        val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, prefix_logger='val')
+        evaluate(best_acc, args, learning_helper, device, test_loader, epoch, prefix_logger='test')
+        set_from_validation(learning_helper, val_metrics_dict)
+        #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader) # this can make gpu run OOM
         scheduler.step()
-
 mlflow.end_run()

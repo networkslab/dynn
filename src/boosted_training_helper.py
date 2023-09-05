@@ -34,7 +34,7 @@ def test_boosted(args, net, test_loader, epoch):
     corrects = [c / t * 100 for c, t in zip(corrects, totals)]
     log_dict = {}
     for blk in range(n_blocks):
-        log_dict['test' + '/accuracies' +
+        log_dict['test' + '/acc' +
                  str(blk)] = corrects[blk]
     mlflow.log_metrics(log_dict)
     return corrects
