@@ -2,6 +2,7 @@ from theft_calibration import calibration_curve
 import torch 
 from utils import free 
 import scipy
+import numpy as np
 
 def check_hamming_vs_acc(intermediate_logits, intermediate_codes, targets):
     inc_inc_H_list = []
@@ -67,3 +68,10 @@ def compute_detached_uncertainty_metrics(logits, targets):
     
     
     return list(p_max), list(entropy), ece, list(margins), list(entropy_pow)
+
+def compute_detached_score(logits, targets): # score value to obtain conformal intervals
+    probs = torch.nn.functional.softmax(logits, dim=1)
+    s = 1-probs[np.arange(logits.shape[0]),targets]
+    return list(free(s))
+    
+    

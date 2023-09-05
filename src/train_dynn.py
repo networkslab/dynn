@@ -72,7 +72,7 @@ if args.use_mlflow:
     if args.barely_train:
         setup_mlflow(name, cfg, experiment_name='test run')
     else:
-        setup_mlflow(name, cfg, experiment_name='compare_acc_boosted')
+        setup_mlflow(name, cfg, experiment_name='conformal')
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy

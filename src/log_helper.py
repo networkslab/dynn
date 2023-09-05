@@ -13,6 +13,10 @@ def we_want_to_see_it(metric_key):
         return False
     if 'list' in metric_key:
         return False
+    if 'score' in metric_key:
+        return False
+    if 'cheating' in metric_key:
+        return False
     return True
 
 # here we change the name of the metric to be displayed
