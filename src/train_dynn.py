@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
-                    choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14'],
+                    choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14', 't2t_vit_14_boosted'], # baseline is to train only with warmup, no gating
                     default='t2t_vit_7', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
@@ -38,7 +38,7 @@ parser.add_argument('--G', default=6, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
-parser.add_argument('--resume','-r',action='store_true',help='resume from checkpoint')
+parser.add_argument('--resume', '-r',action='store_true',help='resume from checkpoint')
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
 parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
@@ -72,7 +72,7 @@ if args.use_mlflow:
     if args.barely_train:
         setup_mlflow(name, cfg, experiment_name='test run')
     else:
-        setup_mlflow(name, cfg, experiment_name='compare_acc_boosted')
+        setup_mlflow(name, cfg, experiment_name='cifar100')
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy
@@ -92,7 +92,7 @@ elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     IMG_SIZE = 224
     args.G = 13
-    train_loader, val_loader, test_loader  = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
+    train_loader, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                         map_location=torch.device(device))
 transformer_layer_gating = [g for g in range(args.G)]
@@ -162,10 +162,12 @@ if isinstance(net.module, Boosted_T2T_ViT):
         'intermediate_head_positions': net.module.intermediate_head_positions
     }
     checkpoint_folder_path = get_abs_path(["checkpoint"])
-    target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_t2t_7_boosted'
+
+    # WARNING: for 7 boosted the checkpoint was saved as f'{checkpoint_folder_path}/checkpoint_{args.dataset}_t2t_7_boosted'
+    target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_{args.arch}'
     if not os.path.isdir(target_checkpoint_folder_path):
         os.mkdir(target_checkpoint_folder_path)
-    torch.save(state, f'{target_checkpoint_folder_path}/ckpt_7_{accs[-1]}_6_{accs[-2]}.pth')
+    torch.save(state, f'{target_checkpoint_folder_path}/last_{accs[-1]}_second_to_last_{accs[-2]}.pth')
 
 elif 'baseline' in args.arch: # only training with warmup
     learning_helper = LearningHelper(net, optimizer, args, device)
