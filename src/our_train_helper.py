@@ -12,7 +12,7 @@ from utils import  progress_bar
 from early_exit_utils import switch_training_phase
 from models.t2t_vit import TrainingPhase
 from plasticity_analysis.plasticity_metrics_utility import get_network_weight_norm_dict
-
+import numpy as np
 
 def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
     loss = log_dict[prefix_logger+'/loss']
@@ -93,10 +93,12 @@ def evaluate(best_acc, args, helper: LearningHelper, device, loader, epoch, pref
         batch_size = targets.size(0)
 
         loss, things_of_interest = helper.get_surrogate_loss(inputs, targets)
+        
         # obtain the metrics associated with the batch
         metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 
         metrics_of_batch['loss'] = (loss.item(), batch_size)
         
+
         # keep track of the average metrics
         metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G) 
         
@@ -136,7 +138,7 @@ def evaluate(best_acc, args, helper: LearningHelper, device, loader, epoch, pref
     return metrics_dict, best_acc
 
 # Any action based on the validation set
-def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False):
+def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False, alpha_conf = 0.05):
    
     # we fix the 1/0 ratios of of gate tasks based on the optimal percent exit in the validation sets
     
@@ -150,10 +152,33 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
         pos_weight = min(pos_weight, 5)
         pos_weights.append(pos_weight)
         
-    print(pos_weights)
+    
     learning_helper.gate_training_helper.set_ratios(pos_weights)
     
+
+    ## compute the quantiles for the conformal intervals
     
+    score, n = val_metrics_dict['gated_score']
+    
+    q_level = np.ceil((n+1)*(1-alpha_conf))/n
+    qhat = np.quantile(score, q_level, method='higher')
+    learning_helper.classifier_training_helper.set_single_conf_threshold(qhat)
+   
+    scores_per_gate, n = val_metrics_dict['score_per_gate']
+    qhats = []
+    for score in scores_per_gate:
+        q_level = np.ceil((n+1)*(1-alpha_conf))/n
+        qhat = np.quantile(score, q_level, method='higher')
+        qhats.append(qhat)
+    # add the last one
+    final_score, n = val_metrics_dict['final_score']
+    q_level = np.ceil((n+1)*(1-alpha_conf))/n
+    qhat = np.quantile(final_score, q_level, method='higher')
+    qhats.append(qhat)
+
+    learning_helper.classifier_training_helper.set_conf_thresholds_per_gate(qhats)
+   
+
     #learning_helper.gate_training_helper.set_ratios(pos_weights)
     # TODO add metric for validation and early stopping
     # if freeze_classifier_with_val:
