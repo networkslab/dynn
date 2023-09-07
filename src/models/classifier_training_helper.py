@@ -5,7 +5,6 @@ from enum import Enum
 class GateSelectionMode(Enum):
     PROBABILISTIC = 'prob'
     DETERMINISTIC = 'det'
-    FIXEDRATIO = 'fixed'
 
 class LossContributionMode(Enum):
     SINGLE = 'single' # a sample contributes to the loss at a single classifier
@@ -78,8 +77,6 @@ class ClassifierTrainingHelper:
                 do_exit = torch.bernoulli(current_gate_activation_prob)
             elif self.gate_selection_mode == GateSelectionMode.DETERMINISTIC:
                 do_exit = current_gate_activation_prob >= 0.5
-            elif self.gate_selection_mode == GateSelectionMode.FIXEDRATIO:
-                do_exit = current_gate_activation_prob >= self.thresh_quantiles[l]
             current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
             current_exit_index = current_exit.flatten().nonzero()
             sample_exit_level_map[current_exit_index] = l

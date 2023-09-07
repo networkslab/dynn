@@ -151,14 +151,11 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
                                                        eta_min=args.min_lr,
                                                        T_max=args.num_epoch)
 
-
-
-
 if isinstance(net.module, Boosted_T2T_ViT):
     for epoch in range(0, args.num_epoch):
         train_boosted(args, net, device, train_loader, optimizer, epoch)
         accs = test_boosted(args, net, test_loader, epoch)
-        #stored_metrics_test = test(epoch)
+        # stored_metrics_test = test(epoch)
         scheduler.step()
     state = {
         'state_dict': net.state_dict(),
@@ -180,7 +177,6 @@ elif 'baseline' in args.arch: # only training with warmup
         scheduler.step()
 
 else:
-    
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
@@ -194,5 +190,4 @@ else:
         set_from_validation(learning_helper, val_metrics_dict)
         #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader) # this can make gpu run OOM
         scheduler.step()
-    
 mlflow.end_run()

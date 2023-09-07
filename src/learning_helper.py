@@ -57,7 +57,6 @@ class LearningHelper:
             for intermediate_logit in intermediate_logits:
                 intermediate_loss = criterion(intermediate_logit, targets)
                 loss += intermediate_loss
-
         things_of_interest = {
             'intermediate_logits': intermediate_logits,
             'final_logits': final_logits}
