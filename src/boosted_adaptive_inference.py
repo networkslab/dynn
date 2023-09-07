@@ -3,7 +3,7 @@ from __future__ import unicode_literals
 from __future__ import print_function
 from __future__ import division
 import argparse
-
+import numpy as np
 import torch
 import torch.nn as nn
 import os
@@ -14,10 +14,11 @@ from log_helper import setup_mlflow
 from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root
 from timm.models import *
 from timm.models import create_model
-from metrics_utils import compute_detached_uncertainty_metrics
+from metrics_utils import compute_detached_score, compute_detached_uncertainty_metrics
 
 from models.register_models import *
 from models.boosted_t2t_vit import Boosted_T2T_ViT
+from utils import free
 
 
 class CustomizedOpen():
@@ -49,15 +50,18 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
     with CustomizedOpen(save_path, 'w') as fout:
         # for p in range(1, 100):
         for p in range(1, 40):
-            print("*********************")
+           # print("*********************")
             _p = torch.FloatTensor(1).fill_(p * 1.0 / 15)
             n_blocks = len(model.module.blocks)
             probs = torch.exp(torch.log(_p) * torch.arange(1, n_blocks))
             probs /= probs.sum()
             acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred, val_target, probs, costs_at_exit)
-            acc_test, exp_cost, metrics_dict = tester.dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T)
+           
+            _, _, metrics_dict_val = tester.dynamic_eval_with_threshold(val_pred, val_target, costs_at_exit, T)
+            acc_test, exp_cost, metrics_dict = tester.dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T, alpha_conf=None, qhat=metrics_dict_val['qhat'])
             mlflow_dict = get_ml_flow_dict(metrics_dict)
-            print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}, test ece: {:.2f}% '.format(acc_val, acc_test, exp_cost, metrics_dict['ECE']* 100.0))
+            #print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}, test ece: {:.2f}% '.format(acc_val, acc_test, exp_cost, metrics_dict['ECE']* 100.0))
+            print('[{:.3f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}],  '.format(100.0*acc_test, exp_cost, metrics_dict['ECE']* 100.0, metrics_dict['gated_average_inef'], metrics_dict['gated_average_cov']))
             mlflow.log_metrics(mlflow_dict, step=p)
             fout.write('Cost: {}, Test acc {}\n'.format(exp_cost.item(), acc_test))
             # for k, v in metrics_dict.items():
@@ -167,7 +171,7 @@ class Tester(object):
 
         return acc * 100.0 / n_sample, expected_flops, T
 
-    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds):
+    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds,alpha_conf = 0.05, qhat=None):
         metrics_dict = {}
         n_stage, n_sample, _ = logits.size()
         max_preds, argmax_preds = logits.max(dim=2, keepdim=False) # take the max logits as confidence
@@ -193,6 +197,21 @@ class Tester(object):
                     exit_count[k] += 1 # keeps track of number of exits per gate
                     has_exited = True # keep on looping but only for computing correct_all
         acc_all, sample_all = 0, 0
+
+        if alpha_conf is not None:
+            score = compute_detached_score(gated_logits, targets)
+            q_level = np.ceil((n_sample+1)*(1-alpha_conf))/n_sample
+            qhat = np.quantile(score, q_level, method='higher')
+            metrics_dict['qhat'] = qhat
+        
+        elif qhat is not None:
+            gated_prob = torch.softmax(gated_logits, dim=1)
+            gated_prediction_sets = gated_prob >= (1-qhat)
+            gated_average_inef = np.mean(np.sum(free(gated_prediction_sets.float()), axis=1))
+            in_gated_conf = gated_prediction_sets[np.arange(n_sample),free(targets)]
+            gated_average_cov = np.mean(free(in_gated_conf))
+            metrics_dict['gated_average_inef'] = gated_average_inef
+            metrics_dict['gated_average_cov'] = gated_average_cov*100.0
         _, _, ece, _, _ = compute_detached_uncertainty_metrics(gated_logits, targets)
         for k in range(n_stage):
             _t = exit_count[k] * 1.0 / n_sample

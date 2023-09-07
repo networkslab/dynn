@@ -71,7 +71,7 @@ def compute_detached_uncertainty_metrics(logits, targets):
 
 def compute_detached_score(logits, targets): # score value to obtain conformal intervals
     probs = torch.nn.functional.softmax(logits, dim=1)
-    s = 1-probs[np.arange(logits.shape[0]),targets]
+    s = 1-probs[np.arange(logits.shape[0]),free(targets)]
     return list(free(s))
     
     
