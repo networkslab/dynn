@@ -150,7 +150,11 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
             metrics_to_aggregate_dict['entropy_per_gate'][0][g] = entropy
             metrics_to_aggregate_dict['pow_entropy_per_gate'][0][g] = entropy_pow
             metrics_to_aggregate_dict['ece_per_gate'][0][g] = 100.0*average_ece*batch_size
-            metrics_to_aggregate_dict['score_per_gate'][0][g] = score
+            if 'sample_exit_level_map' in things_of_interest:
+                score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == g)]
+                metrics_to_aggregate_dict['score_per_gate'][0][g] = list(score_filtered)
+            else:
+                metrics_to_aggregate_dict['score_per_gate'][0][g] = score
 
         correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
         metrics_to_aggregate_dict['cheating_correct'] = (correct_class_cheating.sum().item(), batch_size)

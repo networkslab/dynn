@@ -138,7 +138,7 @@ def evaluate(best_acc, args, helper: LearningHelper, device, loader, epoch, pref
     return metrics_dict, best_acc
 
 # Any action based on the validation set
-def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False, alpha_conf = 0.05):
+def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False, alpha_conf = 0.04):
    
     # we fix the 1/0 ratios of of gate tasks based on the optimal percent exit in the validation sets
     
@@ -161,14 +161,17 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     score, n = val_metrics_dict['gated_score']
     
     q_level = np.ceil((n+1)*(1-alpha_conf))/n
-    qhat = np.quantile(score, q_level, method='higher')
-    learning_helper.classifier_training_helper.set_single_conf_threshold(qhat)
+    qhat_general = np.quantile(score, q_level, method='higher')
+    learning_helper.classifier_training_helper.set_single_conf_threshold(qhat_general)
    
     scores_per_gate, n = val_metrics_dict['score_per_gate']
     qhats = []
     for score in scores_per_gate:
-        q_level = np.ceil((n+1)*(1-alpha_conf))/n
-        qhat = np.quantile(score, q_level, method='higher')
+        if len(score) > 10 :
+            q_level = np.ceil((n+1)*(1-alpha_conf))/n
+            qhat = np.quantile(score, q_level, method='higher')
+        else:
+            qhat = qhat_general
         qhats.append(qhat)
     # add the last one
     final_score, n = val_metrics_dict['final_score']

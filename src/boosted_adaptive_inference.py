@@ -11,7 +11,7 @@ import mlflow
 import torch.backends.cudnn as cudnn
 import math
 from log_helper import setup_mlflow
-from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root
+from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, split_dataloader_in_n
 from timm.models import *
 from timm.models import create_model
 from metrics_utils import compute_detached_score, compute_detached_uncertainty_metrics
@@ -33,10 +33,12 @@ class CustomizedOpen():
     def __exit__(self, type, value, traceback):
         self.f.close()
 
-def dynamic_evaluate(model, test_loader, val_loader, args):
+def dynamic_evaluate(model, test_loader, val_loader_1, val_loader_2, args):
     tester = Tester(model, args)
-
-    val_pred, val_target = tester.calc_logit(val_loader)
+    # we find the threshold with validation set 1
+    # we compute the quantiles for the conformal prediction with validation set 2
+    val_pred_1, val_target_1 = tester.calc_logit(val_loader_1)
+    val_pred_2, val_target_2 = tester.calc_logit(val_loader_2)
     test_pred, test_target = tester.calc_logit(test_loader)
 
     COST_PER_LAYER = 1.0/7 * 100
@@ -55,9 +57,9 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             n_blocks = len(model.module.blocks)
             probs = torch.exp(torch.log(_p) * torch.arange(1, n_blocks))
             probs /= probs.sum()
-            acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred, val_target, probs, costs_at_exit)
+            acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred_1, val_target_1, probs, costs_at_exit) # find the T with val_1
            
-            _, _, metrics_dict_val = tester.dynamic_eval_with_threshold(val_pred, val_target, costs_at_exit, T)
+            _, _, metrics_dict_val = tester.dynamic_eval_with_threshold(val_pred_2, val_target_2, costs_at_exit, T) # compute conformal
             acc_test, exp_cost, metrics_dict = tester.dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T, alpha_conf=None, qhat=metrics_dict_val['qhat'])
             mlflow_dict = get_ml_flow_dict(metrics_dict)
             #print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}, test ece: {:.2f}% '.format(acc_val, acc_test, exp_cost, metrics_dict['ECE']* 100.0))
@@ -171,7 +173,7 @@ class Tester(object):
 
         return acc * 100.0 / n_sample, expected_flops, T
 
-    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds,alpha_conf = 0.05, qhat=None):
+    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds, alpha_conf = 0.03, qhat=None):
         metrics_dict = {}
         n_stage, n_sample, _ = logits.size()
         max_preds, argmax_preds = logits.max(dim=2, keepdim=False) # take the max logits as confidence
@@ -273,7 +275,10 @@ def main(args):
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
     else:
         raise 'Unsupported dataset'
-    dynamic_evaluate(net, test_loader, val_loader, args)
+    # split the validation into 2
+    val_loader_1, val_loader_2 = split_dataloader_in_n(val_loader, n=2)
+
+    dynamic_evaluate(net, test_loader, val_loader_1, val_loader_2, args)
     mlflow.end_run()
 
 
