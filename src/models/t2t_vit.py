@@ -167,7 +167,6 @@ class T2T_ViT(nn.Module):
         self.gate_training_scheme = gate_training_scheme
         self.gate_selection_mode = gate_selection_mode
 
-
     '''
     sets intermediate classifiers that are hooked after inner transformer blocks
     '''
@@ -250,7 +249,7 @@ class T2T_ViT(nn.Module):
         x = torch.cat((cls_tokens, x), dim=1)
         x = x + self.pos_embed
         x = self.pos_drop(x)
-        intermediate_z = [] # the embedding fed into the agumenting classifiers
+        intermediate_z = [] # the embedding fed into the augmenting classifiers
         intermediate_codes = []
         for blk_idx, blk in enumerate(self.blocks):
             x, act_code = blk.forward_get_code(x)

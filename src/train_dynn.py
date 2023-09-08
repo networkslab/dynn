@@ -1,6 +1,5 @@
 '''Train DYNN from checkpoint of trained backbone'''
 import argparse
-from cmath import nan
 import os
 import torch
 import mlflow
@@ -16,17 +15,21 @@ from models.classifier_training_helper import LossContributionMode
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
 from our_train_helper import set_from_validation, evaluate, train_single_epoch
+from weighted_training_helper import train_weighted_net
 from threshold_helper import fixed_threshold_test
 from utils import fix_the_seed
 from models.register_models import *
 from models.boosted_t2t_vit import Boosted_T2T_ViT
+from models.weighted_t2t_vit import WeightedT2tVit
+from models.weighted.wpn import MLP_tanh
 from models.t2t_vit import GateTrainingScheme, GateSelectionMode, TrainingPhase
 
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
-                    choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14', 't2t_vit_14_boosted'], # baseline is to train only with warmup, no gating
+                    choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_7_weighted',
+                             't2t_vit_14', 't2t_vit_14_boosted'], # baseline is to train only with warmup, no gating
                     default='t2t_vit_7', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
@@ -51,6 +54,14 @@ parser.add_argument('--proj_dim',default=32,help='Target dimension of random pro
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True, help='Store the run with mlflow')
 parser.add_argument('--classifier_loss', type=LossContributionMode, default=LossContributionMode.BOOSTED, choices=LossContributionMode)
+# WEIGHTED BASELINE SPECIFIC ARGUMENTS
+parser.add_argument('--meta_net_hidden_size',default=500, help='Width of the hidden size of the weight prediction network')
+parser.add_argument('--meta_net_num_layers',default=1, help='Number of layers of wpn')
+parser.add_argument('--meta_interval',default=100, help='Number of batches to train the wpn')
+parser.add_argument('--meta_lr',default=1e-4, help='learning rate for wpn training')
+parser.add_argument('--meta_weight_epsilon',default=0.3, help='Scaling factor for weight perturbation (see paper sec 3.2)')
+parser.add_argument('--target_p_index',default=15, help='Target p index')
+parser.add_argument('--meta_weight_decay',default=1e-4, help='Weight decay for the wpn optimizer')
 args = parser.parse_args()
 
 fix_the_seed(seed=322)
@@ -66,13 +77,15 @@ if args.use_mlflow:
         name = 'boosted'
     elif 'baseline' in args.arch:
         name = 'baseline'
+    elif 'weighted' in args.arch:
+        name = 'weighted'
     else:
         name = "_".join([ str(a) for a in [args.ce_ic_tradeoff, args.classifier_loss]])
     cfg = vars(args)
     if args.barely_train:
         setup_mlflow(name, cfg, experiment_name='test run')
     else:
-        setup_mlflow(name, cfg, experiment_name='cifar100')
+        setup_mlflow(name, cfg, experiment_name='weighted')
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy
@@ -116,7 +129,7 @@ net.set_intermediate_heads(transformer_layer_gating)
 net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
 print(args.G)
 direct_exit_prob_param = args.model == 'learn_gate_direct'
-if not isinstance(net, Boosted_T2T_ViT):
+if not isinstance(net, Boosted_T2T_ViT) and not 'weighted' in args.arch:
     net.set_learnable_gates(device,
                             transformer_layer_gating,
                             direct_exit_prob_param=direct_exit_prob_param,
@@ -140,7 +153,10 @@ best_acc = checkpoint['acc']
 start_epoch = checkpoint['epoch']
 
 # Backbone is always frozen
-unfrozen_modules = ['intermediate_heads', 'gates'] if not isinstance(net.module, Boosted_T2T_ViT) else ['intermediate_heads']
+unfrozen_modules = ['intermediate_heads', 'gates']
+if 'weighted' in args.arch or isinstance(net.module, Boosted_T2T_ViT):
+    unfrozen_modules = ['intermediate_heads'] # no gates in SOTA baselines
+
 freeze_backbone_helper(net, unfrozen_modules)
 parameters = net.parameters()
 optimizer = optim.SGD(parameters,
@@ -177,7 +193,19 @@ elif 'baseline' in args.arch: # only training with warmup
         #stored_metrics_test = evaluate(best_acc, args, learning_helper, device, test_loader, epoch)
         fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
         scheduler.step()
-
+elif 'weighted' in args.arch: # stupid python issue i don't wanna deal with now https://stackoverflow.com/questions/10582774/python-why-can-isinstance-return-false-when-it-should-return-true
+    # First create the weight prediction network, meta_net
+    num_exits = args.G
+    meta_net = MLP_tanh(input_size=num_exits,
+                        hidden_size=args.meta_net_hidden_size,
+                        num_layers=args.meta_net_num_layers,
+                        output_size=num_exits
+                        )
+    meta_net = meta_net.to(device)
+    if device == 'cuda':
+        meta_net = torch.nn.DataParallel(meta_net)
+    meta_optimizer = torch.optim.Adam(meta_net.parameters(), lr=args.meta_lr, weight_decay=args.meta_weight_decay)
+    train_weighted_net(train_loader, net, meta_net, optimizer, meta_optimizer, 5, args)
 else:
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
