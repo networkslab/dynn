@@ -54,7 +54,10 @@ def get_cifar_10_dataloaders(img_size = 224, train_batch_size = 64, test_batch_s
         return train_loader, test_loader
 
 def split_dataloader_in_n(data_loader, n):
-    indices = data_loader.sampler.indices
+    try:
+        indices = data_loader.sampler.indices
+    except:
+        indices = list(range(len(data_loader.sampler)))
     dataset = data_loader.dataset
     list_indices = np.array_split(np.array(indices),n) 
     batch_size = data_loader.batch_size
