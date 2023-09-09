@@ -4,7 +4,7 @@ import torchvision.transforms as transforms
 import os
 from pathlib import Path
 from torch.utils.data.sampler import SubsetRandomSampler
-
+import numpy as np
 CIFAR_10_IMG_SIZE = 32 * 32
 CIFAR_100_IMG_SIZE = 32 * 32
 
@@ -53,6 +53,21 @@ def get_cifar_10_dataloaders(img_size = 224, train_batch_size = 64, test_batch_s
         train_loader = torch.utils.data.DataLoader(train_set, batch_size=train_batch_size, shuffle=True) # pass num_workers=n if multiprocessing is needed.
         return train_loader, test_loader
 
+def split_dataloader_in_n(data_loader, n):
+    try:
+        indices = data_loader.sampler.indices
+    except:
+        indices = list(range(len(data_loader.sampler)))
+    dataset = data_loader.dataset
+    list_indices = np.array_split(np.array(indices),n) 
+    batch_size = data_loader.batch_size
+    n_loaders = []
+    for i in range(n):
+        sampler = SubsetRandomSampler(list_indices[i])
+        sub_loader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, sampler=sampler)
+        n_loaders.append(sub_loader)
+    return n_loaders
+    
 def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100, val_size = 0):
     transform_train = transforms.Compose([
         transforms.Resize(img_size),
