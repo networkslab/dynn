@@ -238,24 +238,29 @@ def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_s
     net.load_state_dict(checkpoint['state_dict'], strict=False)
     return net
 def main(args):
-    NUM_CLASSES = 100
+    
     IMG_SIZE = 224
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     cfg = vars(args)
     if args.use_mlflow:
         name = "boosted_adaptive_inference"
         setup_mlflow(name, cfg, experiment_name='boosted_evaluation')
-    # LOAD MODEL
-    checkpoint_path = get_latest_checkpoint_path(args.checkpoint_dir)
-    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
-    net = net.to(device)
-
+    num_classes = 0
     if args.dataset == 'cifar10':
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
+        num_classes = 10
     elif args.dataset == 'cifar100':
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
+        num_classes = 100
     else:
         raise 'Unsupported dataset'
+    
+    # LOAD MODEL
+    checkpoint_path = get_latest_checkpoint_path(args.checkpoint_dir)
+    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, num_classes, IMG_SIZE)
+    net = net.to(device)
+
+    
     dynamic_evaluate(net, test_loader, val_loader, args)
     mlflow.end_run()
 
