@@ -81,8 +81,9 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
         test_preds.append(test_pred)
         test_targets.append(test_target)
     
-    COST_PER_LAYER = 1.0/7 * 100
-    costs_at_exit = [COST_PER_LAYER * (i + 1) for i in range(len(model.module.blocks))]
+    number_of_layers = len(model.module.blocks)
+    cost_per_layer = 1.0/number_of_layers * 100
+    costs_at_exit = [cost_per_layer * (i + 1) for i in range(number_of_layers)]
 
     acc_val_last = -1
     acc_test_last = -1
@@ -329,25 +330,25 @@ def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_s
     net.load_state_dict(checkpoint['state_dict'], strict=False)
     return net
 def main(args):
-    NUM_CLASSES = 10
+    num_classes = 0
     IMG_SIZE = 224
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     cfg = vars(args)
     if args.use_mlflow:
         name = "boosted_adaptive_inference"
         setup_mlflow(name, cfg, experiment_name='boosted_evaluation')
-    # LOAD MODEL
-    checkpoint_path = get_latest_checkpoint_path(args.checkpoint_dir)
-    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
-    net = net.to(device)
-
     if args.dataset == 'cifar10':
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
+        num_classes = 10
     elif args.dataset == 'cifar100':
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
+        num_classes = 100
     else:
         raise 'Unsupported dataset'
-   
+    # LOAD MODEL
+    checkpoint_path = get_latest_checkpoint_path(args.checkpoint_dir)
+    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, num_classes, IMG_SIZE)
+    net = net.to(device)
 
     dynamic_evaluate(net, test_loader, val_loader, args)
     mlflow.end_run()
@@ -357,7 +358,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7'], default='t2t_vit_7_boosted', help='model')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted'], default='t2t_vit_7_boosted', help='model')
     parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
     parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar10_t2t_7_boosted",help='Directory of checkpoint for trained model')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
@@ -375,7 +376,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_milestones', default='100,200', type=str, help='lr decay milestones')
     parser.add_argument('--ensemble_reweight', default="1.0", type=str, help='ensemble weight of early classifiers')
     parser.add_argument('--loss_equal', action='store_true', help='loss equalization')
-    parser.add_argument('--save_suffix', default="patate",type=str)
+    parser.add_argument('--save_suffix', default="t2t_vit_14_cifar_100",type=str)
     parser.add_argument('--batch-size', type=int, default=64)
     args = parser.parse_args()
     main(args)
