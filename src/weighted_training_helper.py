@@ -4,30 +4,48 @@ import torch
 import mlflow
 from timm.models import *
 from timm.models import create_model
+import pandas as pd
 import time
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 import math
 from models.weighted import MetaSGD
 import torch.nn.functional as F
+from data_loading.data_loader_helper import get_abs_path
 
-def train_weighted_net(train_loader, model, meta_net, optimizer, meta_optimizer, num_epochs, args):
+def train_weighted_net(train_loader, test_loader, model, meta_net, optimizer, meta_optimizer, num_epochs, args, with_serialization = False):
     num_exits = args.G + 1
     probs = calc_target_probs(num_exits)
     target_probs = probs[args.target_p_index-1]
     print(target_probs)
+    best_acc_top_1 = 0
     for epoch in range(num_epochs):
         # note how the training takes the target_probs (from calc_probs(num_exits)[target_prob ==15)
         ce_loss_train, acc1_exits_train, _, meta_loss_train, lr, meta_lr, all_losses, all_confidences, all_weights = train_weighted_net_single_epoch(
             train_loader, model, meta_net, optimizer, meta_optimizer, epoch, target_probs, args)
+        ce_loss_val, acc1_exits_val, _ = validate(test_loader, model, args)
 
+        val_prec_last_head = acc1_exits_val[-1]
+        if val_prec_last_head > best_acc_top_1:
+            print("Increase in validation accuracy of last trainable head, serializing model")
 
+            best_acc_top_1 = val_prec_last_head
+            state = {
+                'net': model.state_dict(),
+                'acc': best_acc_top_1,
+                'epoch': epoch,
+            }
+            checkpoint_path = get_abs_path(['checkpoint'])
+            checkpoint_path = f'{checkpoint_path}/checkpoint_{args.dataset}_{args.arch}'
+            if not os.path.isdir(checkpoint_path):
+                os.mkdir(checkpoint_path)
+            torch.save(
+                state,
+                f'{checkpoint_path}/ckpt_ep{epoch}_acc{best_acc_top_1}.pth'
+            )
 
 
 
 def train_weighted_net_single_epoch(train_loader, model, meta_net, optimizer, meta_optimizer, epoch, target_probs, args):
-    # TODO this should be done dynamically
-    NUM_CLASSES = 10
-    IMG_SIZE = 224
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     meta_losses = AverageMeter('MetaLoss', ':.4e')
@@ -91,9 +109,11 @@ def train_weighted_net_single_epoch(train_loader, model, meta_net, optimizer, me
             pseudo_weight = torch.ones(pseudo_weight.shape).to(pseudo_weight.device) + args.meta_weight_epsilon * pseudo_weight
 
             pseudo_loss_multi_exits = torch.sum(torch.mean(pseudo_weight * pseudo_losses, 0))
-            trainable_params = list(filter(lambda p: p.requires_grad, list(pseudo_net.parameters())))
-            # trainable_params = pseudo_net.module.get_trainable_parameters()
-            pseudo_grads = torch.autograd.grad(pseudo_loss_multi_exits, trainable_params, create_graph=True)
+            pseudo_grads = torch.autograd.grad(
+                pseudo_loss_multi_exits,
+                pseudo_net.module.get_trainable_parameters(),
+                create_graph=True
+            )
 
             pseudo_optimizer = MetaSGD(pseudo_net, pseudo_net.parameters(), lr=lr)
             pseudo_optimizer.load_state_dict(optimizer.state_dict())
@@ -274,7 +294,7 @@ def train_weighted_net_single_epoch(train_loader, model, meta_net, optimizer, me
 
         with torch.no_grad():
             weight = meta_net(input_of_meta)
-            weight = weight - torch.mean(weight)                   # 1
+            weight = weight - torch.mean(weight) # 1
             weight = torch.ones(weight.shape).to(weight.device) + args.meta_weight_epsilon * weight
             if i == 0:
                 all_losses_record = losses
@@ -324,6 +344,68 @@ def train_weighted_net_single_epoch(train_loader, model, meta_net, optimizer, me
 
     return ce_loss, acc1_exits, acc5_exits, meta_losses.avg, running_lr, running_meta_lr, all_losses_record, all_confidences_record, all_weights
 
+
+def validate(loader, model, args):
+    batch_time = AverageMeter('Time', ':6.3f')
+    criterion = torch.nn.CrossEntropyLoss()
+    data_time = AverageMeter('Data', ':6.3f')
+    model.eval()
+    num_exits = args.G
+    top1, top5, losses = [], [], []
+    for i in range(num_exits):
+        losses.append(AverageMeter('Loss', ':.4e'))
+        top1.append(AverageMeter('Acc@1', ':6.2f'))
+        top5.append(AverageMeter('Acc@5', ':6.2f'))
+
+    end = time.time()
+    with torch.no_grad():
+        for i, (images, target) in enumerate(loader):
+            data_time.update(time.time() - end)
+
+            target = target.cuda(non_blocking=True)
+            images = images.cuda(non_blocking=True)
+
+            output = model(images)
+            if not isinstance(output, list):
+                output = [output]
+
+            for j in range(num_exits):
+                prec1, prec5 = accuracy(output[j].data, target, topk=(1, 5))
+                loss = criterion(output[j], target)
+
+                top1[j].update(prec1.item(), images.size(0))
+                top5[j].update(prec5.item(), images.size(0))
+                losses[j].update(loss.item(), images.size(0))
+
+            # measure elapsed time
+            batch_time.update(time.time() - end)
+            end = time.time()
+            if i % 40 == 0:
+                print('Epoch: [{0}/{1}]\t'
+                                  'Time {batch_time.val:.3f}({batch_time.avg:.3f})\t'
+                                  'Data {data_time.val:.3f}({data_time.avg:.3f})\t'
+                                  'Acc@1 {top1.val:.4f}({top1.avg:.4f})\t'
+                                  'Acc@5 {top5.val:.4f}({top5.avg:.4f})'
+                .format(
+                    i, len(loader),
+                    batch_time=batch_time, data_time=data_time,
+                    top1=top1[-1], top5=top5[-1]))
+
+        ce_loss = []
+        acc1_exits = []
+        acc5_exits = []
+        for j in range(num_exits):
+            ce_loss.append(losses[j].avg)
+            acc1_exits.append(top1[j].avg)
+            acc5_exits.append(top5[j].avg)
+
+        df = pd.DataFrame({'ce_loss': ce_loss, 'acc1_exits': acc1_exits, 'acc5_exits':acc5_exits})
+
+        log_file = f"{get_abs_path(['results'])}/weighted_val_{args.dataset}_{args.arch}.csv"
+        with open(log_file, "w") as f:
+            df.to_csv(f)
+
+        return ce_loss, acc1_exits, acc5_exits
 
 # Utility classes and methods
 class AverageMeter(object):

@@ -27,3 +27,10 @@ class WeightedT2tVit(T2T_ViT):
         outs = intermediate_logits
         outs.append(x)
         return outs
+
+    # Utility function to get parameters that are not frozen
+    def get_trainable_named_parameters(self):
+        return list(filter(lambda t: t[1].requires_grad, list(self.named_parameters())))
+
+    def get_trainable_parameters(self):
+        return list(filter(lambda p: p.requires_grad, list(self.parameters())))

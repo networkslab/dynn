@@ -205,7 +205,7 @@ elif 'weighted' in args.arch: # stupid python issue i don't wanna deal with now 
     if device == 'cuda':
         meta_net = torch.nn.DataParallel(meta_net)
     meta_optimizer = torch.optim.Adam(meta_net.parameters(), lr=args.meta_lr, weight_decay=args.meta_weight_decay)
-    train_weighted_net(train_loader, net, meta_net, optimizer, meta_optimizer, 5, args)
+    train_weighted_net(train_loader, test_loader, net, meta_net, optimizer, meta_optimizer, 5, args)
 else:
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)

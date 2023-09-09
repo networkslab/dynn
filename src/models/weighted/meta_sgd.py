@@ -27,10 +27,9 @@ class MetaSGD(SGD):
         nesterov = group['nesterov']
         lr = group['lr']
         trainable_params = list(filter(lambda t: t[1].requires_grad, list(self.net.named_parameters())))
+        # tp2 = self.net.module.get_trainable_named_parameters() TODO figure out why passing this causes a tensor to be missing requires_grad
         for (name, parameter), grad in zip(trainable_params, grads):
             parameter.detach_()
-            if name == 'module.pos_embed':
-                continue
             if weight_decay != 0:
                 grad_wd = grad.add(parameter, alpha=weight_decay)
             else:
