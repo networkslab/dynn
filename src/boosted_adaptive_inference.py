@@ -7,11 +7,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 import os
+from torch import nn, optim
 import mlflow
 import torch.backends.cudnn as cudnn
 import math
 from log_helper import setup_mlflow
-from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root
+from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, split_dataloader_in_n
 from timm.models import *
 from timm.models import create_model
 from metrics_utils import compute_detached_score, compute_detached_uncertainty_metrics
@@ -19,7 +20,7 @@ from metrics_utils import compute_detached_score, compute_detached_uncertainty_m
 from models.register_models import *
 from models.boosted_t2t_vit import Boosted_T2T_ViT
 from utils import free
-
+import pickle as pk
 
 class CustomizedOpen():
     def __init__(self, path, mode): 
@@ -33,12 +34,53 @@ class CustomizedOpen():
     def __exit__(self, type, value, traceback):
         self.f.close()
 
+
+    
+def stolen_calibrate(logits, targets, temp=None):
+        
+
+        if temp is None: # we compute the temp on this data
+            # Stolen from https://github.com/gpleiss/temperature_scaling/blob/master/temperature_scaling.py#L78
+            nll_criterion = nn.CrossEntropyLoss().cuda()
+            #ece_criterion = _ECELoss().cuda()
+            before_temperature_nll = nll_criterion(logits, targets.long()).item()
+        # before_temperature_ece = ece_criterion(logits, labels).item()
+           
+            temp = nn.Parameter(torch.ones(1) * 1.5)
+            # Next: optimize the temperature w.r.t. NLL
+            optimizer = optim.LBFGS([temp], lr=0.01, max_iter=50)
+
+            def eval():
+                optimizer.zero_grad()
+                loss = nll_criterion(logits/temp, targets.long())
+                loss.backward()
+                return loss
+            optimizer.step(eval)
+
+            # Calculate NLL and ECE after temperature scaling
+            after_temperature_nll = nll_criterion(logits/temp, targets.long()).item()
+           
+            return temp.detach().cpu().numpy(), logits/temp
+        else: # we calibrate the logits with the given temp
+            return logits/temp
+
 def dynamic_evaluate(model, test_loader, val_loader, args):
     tester = Tester(model, args)
-
-    val_pred, val_target = tester.calc_logit(val_loader)
-    test_pred, test_target = tester.calc_logit(test_loader)
-
+     # split the validation into 2
+    val_loader_1, val_loader_2 = split_dataloader_in_n(val_loader, n=2)
+    n_test = 2
+    test_loaders = split_dataloader_in_n(test_loader, n=n_test)
+    # we find the threshold with validation set 1
+    # we compute the quantiles for the conformal prediction with validation set 2
+    val_pred_1, val_target_1 = tester.calc_logit(val_loader_1)
+    val_pred_2, val_target_2 = tester.calc_logit(val_loader_2)
+    test_preds = []
+    test_targets = []
+    for test_loader in test_loaders:
+        test_pred, test_target = tester.calc_logit(test_loader)
+        test_preds.append(test_pred)
+        test_targets.append(test_target)
+    
     COST_PER_LAYER = 1.0/7 * 100
     costs_at_exit = [COST_PER_LAYER * (i + 1) for i in range(len(model.module.blocks))]
 
@@ -46,7 +88,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
     acc_test_last = -1
     path_project = get_path_to_project_root()
     save_path = os.path.join(path_project, args.result_dir, 'dynamic{}.txt'.format(args.save_suffix))
-
+    all_value_dicts_per_T = []
     with CustomizedOpen(save_path, 'w') as fout:
         # for p in range(1, 100):
         for p in range(1, 40):
@@ -55,30 +97,58 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             n_blocks = len(model.module.blocks)
             probs = torch.exp(torch.log(_p) * torch.arange(1, n_blocks))
             probs /= probs.sum()
-            acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred, val_target, probs, costs_at_exit)
+            acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred_1, val_target_1, probs, costs_at_exit) # find the T with val_1
            
-            _, _, metrics_dict_val = tester.dynamic_eval_with_threshold(val_pred, val_target, costs_at_exit, T)
-            acc_test, exp_cost, metrics_dict = tester.dynamic_eval_with_threshold(test_pred, test_target, costs_at_exit, T, alpha_conf=None, qhat=metrics_dict_val['qhat'])
-            mlflow_dict = get_ml_flow_dict(metrics_dict)
+            metrics_dict_val = tester.dynamic_eval_with_threshold(val_pred_2, val_target_2, costs_at_exit, T) # compute conformal
+            qhat_from_val = metrics_dict_val['qhat']
+            temp_from_val = metrics_dict_val['temp']
+            metrics_dicts = []
+            for i in range(n_test):
+                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, alpha_conf=None, qhat=qhat_from_val, temp=temp_from_val
+                )
+                metrics_dicts.append(metrics_dict)
+            
+            mlflow_dict, all_value_dicts = get_ml_flow_dict(metrics_dicts)
+            all_value_dicts_per_T.append(all_value_dicts)
+            acc_test = mlflow_dict['ACC']
+            exp_cost = mlflow_dict['EXPECTED_FLOPS']
+            ece = mlflow_dict['ECE']
+            C = mlflow_dict['gated_average_inef']
+            emp_alpha = mlflow_dict['gated_average_cov']
             #print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}, test ece: {:.2f}% '.format(acc_val, acc_test, exp_cost, metrics_dict['ECE']* 100.0))
-            print('[{:.3f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}],  '.format(100.0*acc_test, exp_cost, metrics_dict['ECE']* 100.0, metrics_dict['gated_average_inef'], metrics_dict['gated_average_cov']))
+            print('[{:.3f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}],  '.format(acc_test, exp_cost, ece, C, emp_alpha))
             mlflow.log_metrics(mlflow_dict, step=p)
-            fout.write('Cost: {}, Test acc {}\n'.format(exp_cost.item(), acc_test))
+            #fout.write('Cost: {}, Test acc {}\n'.format(exp_cost.item(), acc_test))
             # for k, v in metrics_dict.items():
             #     fout.write(f'{k}\n')
             #     for item in v:
             #         fout.write(f'{item}%\n')
             # fout.write('**************************\n')
+    with open('boosted_results.pk', 'wb') as file:
+        pk.dump(all_value_dicts_per_T, file)
+        
 
-def get_ml_flow_dict(dict):
+def aggregate_dicts(dict, key, val):
+    if  key not in dict:
+        dict[key] = [val]
+    else:
+        dict[key].append(val)
+
+def get_ml_flow_dict(dicts):
+    all_value_dicts = {}
+    for dict in dicts:
+        
+        for k, v in dict.items():
+            if isinstance(v, list):
+                for i in range(len(v)):
+                    aggregate_dicts(all_value_dicts, f'{k}_{i}', v[i])
+            else:
+                aggregate_dicts(all_value_dicts, k, v)
+            
     mlflow_dict = {}
-    for k, v in dict.items():
-        if isinstance(v, list):
-            for i in range(len(v)):
-                mlflow_dict[f'{k}_{i}'] = v[i]
-        else:
-            mlflow_dict[k] = v
-    return mlflow_dict
+    for key, vals in all_value_dicts.items():
+        mlflow_dict[key] = np.mean(vals)
+    return mlflow_dict, all_value_dicts
 
 class Tester(object):
     def __init__(self, model, args=None):
@@ -171,7 +241,7 @@ class Tester(object):
 
         return acc * 100.0 / n_sample, expected_flops, T
 
-    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds,alpha_conf = 0.05, qhat=None):
+    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds, alpha_conf = 0.03, qhat=None, temp=None):
         metrics_dict = {}
         n_stage, n_sample, _ = logits.size()
         max_preds, argmax_preds = logits.max(dim=2, keepdim=False) # take the max logits as confidence
@@ -197,7 +267,10 @@ class Tester(object):
                     exit_count[k] += 1 # keeps track of number of exits per gate
                     has_exited = True # keep on looping but only for computing correct_all
         acc_all, sample_all = 0, 0
-
+        if temp is None:
+            temp, cal_logits = stolen_calibrate(gated_logits, targets)
+        else:
+            cal_logits = stolen_calibrate(gated_logits, targets, temp=temp)
         if alpha_conf is not None:
             score = compute_detached_score(gated_logits, targets)
             q_level = np.ceil((n_sample+1)*(1-alpha_conf))/n_sample
@@ -212,7 +285,7 @@ class Tester(object):
             gated_average_cov = np.mean(free(in_gated_conf))
             metrics_dict['gated_average_inef'] = gated_average_inef
             metrics_dict['gated_average_cov'] = gated_average_cov*100.0
-        _, _, ece, _, _ = compute_detached_uncertainty_metrics(gated_logits, targets)
+        _, _, ece, _, _ = compute_detached_uncertainty_metrics(cal_logits, targets)
         for k in range(n_stage):
             _t = exit_count[k] * 1.0 / n_sample
             sample_all += exit_count[k]
@@ -229,8 +302,9 @@ class Tester(object):
         acc = acc * 100.0 / n_sample
         metrics_dict['ACC'] = acc
         metrics_dict['EXPECTED_FLOPS'] = expected_flops.item()
-        metrics_dict['ECE'] = ece
-        return acc * 100.0 / n_sample, expected_flops, metrics_dict
+        metrics_dict['ECE'] = ece*100.0
+        metrics_dict['temp'] = temp
+        return metrics_dict
 
 def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_size):
     checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
@@ -273,6 +347,8 @@ def main(args):
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
     else:
         raise 'Unsupported dataset'
+   
+
     dynamic_evaluate(net, test_loader, val_loader, args)
     mlflow.end_run()
 

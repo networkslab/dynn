@@ -64,7 +64,7 @@ def compute_detached_uncertainty_metrics(logits, targets):
         _, predicted = logits.max(1)
         correct = predicted.eq(targets)
         ground_truth = free(correct)
-        _, _, ece = calibration_curve(ground_truth, p_max,strategy='quantile')
+        _, _, ece = calibration_curve(ground_truth, p_max,strategy='quantile',n_bins=15)
     
     
     return list(p_max), list(entropy), ece, list(margins), list(entropy_pow)
