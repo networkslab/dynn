@@ -150,7 +150,7 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
     return metrics_dict, best_acc, log_dicts_of_trials
 
 # Any action based on the validation set
-def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False, alpha_conf = 0.04):
+def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False):
    
     # we fix the 1/0 ratios of of gate tasks based on the optimal percent exit in the validation sets
     
@@ -171,27 +171,29 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     ## compute the quantiles for the conformal intervals
     
     score, n = val_metrics_dict['gated_score']
-    
-    q_level = np.ceil((n+1)*(1-alpha_conf))/n
-    qhat_general = np.quantile(score, q_level, method='higher')
-    learning_helper.classifier_training_helper.set_single_conf_threshold(qhat_general)
-   
-    scores_per_gate, n = val_metrics_dict['score_per_gate']
-    qhats = []
-    for score in scores_per_gate:
-        if len(score) > 10 :
-            q_level = np.ceil((n+1)*(1-alpha_conf))/n
-            qhat = np.quantile(score, q_level, method='higher')
-        else:
-            qhat = qhat_general
+    alpha_confs = [0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5]
+    alpha_qhat_dict = {}
+    for alpha_conf in alpha_confs:
+        q_level = np.ceil((n+1)*(1-alpha_conf))/n
+        qhat_general = np.quantile(score, q_level, method='higher')
+        
+        scores_per_gate, n = val_metrics_dict['score_per_gate']
+        qhats = []
+        for scores_in_l in scores_per_gate:
+            if len(scores_in_l) > 10 :
+                q_level = np.ceil((n+1)*(1-alpha_conf))/n
+                qhat = np.quantile(scores_in_l, q_level, method='higher')
+            else:
+                qhat = qhat_general
+            qhats.append(qhat)
+        # add the last one
+        final_score, n = val_metrics_dict['final_score']
+        q_level = np.ceil((n+1)*(1-alpha_conf))/n
+        qhat = np.quantile(final_score, q_level, method='higher')
         qhats.append(qhat)
-    # add the last one
-    final_score, n = val_metrics_dict['final_score']
-    q_level = np.ceil((n+1)*(1-alpha_conf))/n
-    qhat = np.quantile(final_score, q_level, method='higher')
-    qhats.append(qhat)
+        alpha_qhat_dict[alpha_conf] = {'qhats':qhats, 'qhat':qhat}
 
-    learning_helper.classifier_training_helper.set_conf_thresholds_per_gate(qhats)
+    learning_helper.classifier_training_helper.set_conf_thresholds(alpha_qhat_dict)
    
 
     #learning_helper.gate_training_helper.set_ratios(pos_weights)

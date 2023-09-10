@@ -160,20 +160,22 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
         metrics_to_aggregate_dict['cheating_correct'] = (correct_class_cheating.sum().item(), batch_size)
         # TODO the ensembling
     if 'gated_prediction_sets' in things_of_interest:
-        gated_prediction_sets = things_of_interest['gated_prediction_sets']
-        gated_total_size_intervals = np.sum(free(gated_prediction_sets.float()))
-        in_gated_conf = gated_prediction_sets[np.arange(batch_size),targets]
-        total_in_gated_conf = free(torch.sum(in_gated_conf))
-        metrics_to_aggregate_dict['gated_size_intervals'] = (gated_total_size_intervals, batch_size)
-        metrics_to_aggregate_dict['gated_total_conf'] = (total_in_gated_conf, batch_size)
+        gated_prediction_sets_dict = things_of_interest['gated_prediction_sets']
+        for alpha, gated_prediction_sets in gated_prediction_sets_dict.items():
+            C = np.sum(free(gated_prediction_sets.float()))
+            in_gated_conf = gated_prediction_sets[np.arange(batch_size),targets]
+            cov = free(torch.sum(in_gated_conf))
+            metrics_to_aggregate_dict['C_'+str(alpha)] = (C, batch_size)
+            metrics_to_aggregate_dict['cov_'+str(alpha)] = (cov, batch_size)
 
     if 'general_prediction_sets' in things_of_interest:
-        general_prediction_sets = things_of_interest['general_prediction_sets']
-        general_total_size_intervals = np.sum(free(general_prediction_sets.float()))
-        in_general_conf = general_prediction_sets[np.arange(batch_size),targets]
-        total_in_general_conf = free(torch.sum(in_general_conf))
-        metrics_to_aggregate_dict['general_size_intervals'] = (general_total_size_intervals, batch_size)
-        metrics_to_aggregate_dict['general_total_conf'] = (total_in_general_conf, batch_size)
+        general_prediction_sets_dict = things_of_interest['general_prediction_sets']
+        for alpha, general_prediction_sets in general_prediction_sets_dict.items():
+            C = np.sum(free(general_prediction_sets.float()))
+            in_general_conf = general_prediction_sets[np.arange(batch_size),targets]
+            cov = free(torch.sum(in_general_conf))
+            metrics_to_aggregate_dict['C_'+str(alpha)] = (C, batch_size)
+            metrics_to_aggregate_dict['cov_'+str(alpha)] = (cov, batch_size)
 
     if 'gated_y_logits' in things_of_interest:
         gated_y_logits = things_of_interest['gated_y_logits']
