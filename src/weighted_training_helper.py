@@ -30,9 +30,11 @@ def train_weighted_net(train_loader, test_loader, model, meta_net, optimizer, me
 
             best_acc_top_1 = val_prec_last_head
             state = {
-                'net': model.state_dict(),
+                'net': model.state_dict(), # TODO remove this
+                'state_dict': model.state_dict(),
                 'acc': best_acc_top_1,
                 'epoch': epoch,
+                'intermediate_head_positions': model.module.intermediate_head_positions
             }
             checkpoint_path = get_abs_path(['checkpoint'])
             checkpoint_path = f'{checkpoint_path}/checkpoint_{args.dataset}_{args.arch}'

@@ -11,6 +11,7 @@ from torch import nn, optim
 import mlflow
 import torch.backends.cudnn as cudnn
 import math
+import time
 from log_helper import setup_mlflow
 from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, split_dataloader_in_n
 from timm.models import *
@@ -125,7 +126,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             #     for item in v:
             #         fout.write(f'{item}%\n')
             # fout.write('**************************\n')
-    with open('boosted_results.pk', 'wb') as file:
+    with open(args.results_file, 'wb') as file:
         pk.dump(all_value_dicts_per_T, file)
         
 
@@ -322,13 +323,16 @@ def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_s
                        bn_momentum=None,
                        bn_eps=None,
                        img_size=img_size)
-    
-    net.set_intermediate_heads(checkpoint['intermediate_head_positions'])
+    # TODO: fix this for weighted to serialize where the intermediate head positions were
+    # net.set_intermediate_heads(checkpoint['intermediate_head_positions'])
+    net.set_intermediate_heads([i for i in range(6)])
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
         cudnn.benchmark = True
-    net.load_state_dict(checkpoint['state_dict'], strict=False)
+    # Warning: make sure the serialized object has 'net' for the state_dict. We were using state_dict before but for weighted the model was serialized with 'net'
+    net.load_state_dict(checkpoint['net'], strict=False)
     return net
+
 def main(args):
     num_classes = 0
     IMG_SIZE = 224
@@ -358,9 +362,9 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted'], default='t2t_vit_7_boosted', help='model')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted'], default='t2t_vit_7_boosted', help='model')
     parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
-    parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar10_t2t_7_boosted",help='Directory of checkpoint for trained model')
+    parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar10_t2t_7_weighted",help='Directory of checkpoint for trained model')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
     parser.add_argument('--base', type=int, default=4)
@@ -376,7 +380,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr_milestones', default='100,200', type=str, help='lr decay milestones')
     parser.add_argument('--ensemble_reweight', default="1.0", type=str, help='ensemble weight of early classifiers')
     parser.add_argument('--loss_equal', action='store_true', help='loss equalization')
-    parser.add_argument('--save_suffix', default="t2t_vit_14_cifar_100",type=str)
+    parser.add_argument('--save_suffix', default="t2t_vit_7_weighted_cifar_10",type=str)
     parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--results_file', default=f"{str(int(time.time()))}_results.pk")
     args = parser.parse_args()
     main(args)
