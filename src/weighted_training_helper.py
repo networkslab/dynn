@@ -12,20 +12,20 @@ from models.weighted import MetaSGD
 import torch.nn.functional as F
 from data_loading.data_loader_helper import get_abs_path
 
-def train_weighted_net(train_loader, test_loader, model, meta_net, optimizer, meta_optimizer, num_epochs, args, with_serialization = False):
+def train_weighted_net(train_loader, test_loader, model, meta_net, optimizer, meta_optimizer, args, with_serialization = False):
     num_exits = args.G + 1
     probs = calc_target_probs(num_exits)
     target_probs = probs[args.target_p_index-1]
     print(target_probs)
     best_acc_top_1 = 0
-    for epoch in range(num_epochs):
+    for epoch in range(args.num_epoch):
         # note how the training takes the target_probs (from calc_probs(num_exits)[target_prob ==15)
         ce_loss_train, acc1_exits_train, _, meta_loss_train, lr, meta_lr, all_losses, all_confidences, all_weights = train_weighted_net_single_epoch(
             train_loader, model, meta_net, optimizer, meta_optimizer, epoch, target_probs, args)
         ce_loss_val, acc1_exits_val, _ = validate(test_loader, model, args)
 
         val_prec_last_head = acc1_exits_val[-1]
-        if val_prec_last_head > best_acc_top_1:
+        if val_prec_last_head > best_acc_top_1 and with_serialization:
             print("Increase in validation accuracy of last trainable head, serializing model")
 
             best_acc_top_1 = val_prec_last_head
