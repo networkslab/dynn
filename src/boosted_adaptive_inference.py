@@ -359,9 +359,9 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted'], default='t2t_vit_14_boosted', help='model')
-    parser.add_argument('--dataset', type=str, default='cifar100', help='dataset')
-    parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar100_t2t_vit_14_boosted",help='Directory of checkpoint for trained model')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted'], default='t2t_vit_7_boosted', help='model')
+    parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
+    parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar10_t2t_7_boosted",help='Directory of checkpoint for trained model')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
     parser.add_argument('--base', type=int, default=4)
