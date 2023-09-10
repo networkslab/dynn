@@ -6,6 +6,7 @@ import torch
 import mlflow
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
+import pickle as pk
 from timm.models import *
 from timm.models import create_model
 from boosted_training_helper import test_boosted, train_boosted
@@ -27,14 +28,14 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
                     choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_14', 't2t_vit_14_boosted'], # baseline is to train only with warmup, no gating
-                    default='t2t_vit_14', help='model to train'
+                    default='t2t_vit_7', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
-parser.add_argument('--dataset',type=str,default='cifar100',help='cifar10 or cifar100')
+parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.1,type=float,help='cost inference and cross entropy loss tradeoff')
-parser.add_argument('--G', default=14, type=int, help='number of gates')
+parser.add_argument('--G', default=7, type=int, help='number of gates')
 parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
@@ -72,7 +73,7 @@ if args.use_mlflow:
     if args.barely_train:
         setup_mlflow(name, cfg, experiment_name='test run')
     else:
-        setup_mlflow(name, cfg, experiment_name='cifar100')
+        setup_mlflow(name, cfg, experiment_name='multiple trials')
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy
@@ -182,14 +183,17 @@ else:
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
     train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
-    val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=0, prefix_logger='val')
+    val_metrics_dict, _, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=0, prefix_logger='val')
     set_from_validation(learning_helper, val_metrics_dict)
     evaluate(best_acc, args, learning_helper, device, test_loader, epoch=0, prefix_logger='test')
     for epoch in range(1, args.num_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
-        val_metrics_dict, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, prefix_logger='val')
-        evaluate(best_acc, args, learning_helper, device, test_loader, epoch, prefix_logger='test')
+        val_metrics_dict, _, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, prefix_logger='val')
+        _,_,log_dict = evaluate(best_acc, args, learning_helper, device, test_loader, epoch, prefix_logger='test')
         set_from_validation(learning_helper, val_metrics_dict)
         #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader) # this can make gpu run OOM
         scheduler.step()
+with open(args.dataset+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
+    pk.dump(log_dict, file)
+
 mlflow.end_run()

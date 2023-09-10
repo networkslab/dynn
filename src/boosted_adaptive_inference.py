@@ -19,7 +19,7 @@ from metrics_utils import compute_detached_score, compute_detached_uncertainty_m
 
 from models.register_models import *
 from models.boosted_t2t_vit import Boosted_T2T_ViT
-from utils import free
+from utils import aggregate_dicts, free
 import pickle as pk
 
 class CustomizedOpen():
@@ -75,7 +75,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
 
      # split the validation into 2
     val_loader_1, val_loader_2 = split_dataloader_in_n(val_loader, n=2)
-    n_test = 2
+    n_test = 10
     test_loaders = split_dataloader_in_n(test_loader, n=n_test)
     # we find the threshold with validation set 1
     # we compute the quantiles for the conformal prediction with validation set 2
@@ -97,7 +97,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
     all_value_dicts_per_T = []
     with CustomizedOpen(save_path, 'w') as fout:
         # for p in range(1, 100):
-        for p in range(1, 40):
+        for p in range(1, 20):
            # print("*********************")
             _p = torch.FloatTensor(1).fill_(p * 1.0 / 15)
             n_blocks = len(model.module.blocks)
@@ -130,15 +130,11 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             #     for item in v:
             #         fout.write(f'{item}%\n')
             # fout.write('**************************\n')
-    with open('boosted_results.pk', 'wb') as file:
+    with open(args.dataset+'_boosted_results.pk', 'wb') as file:
         pk.dump(all_value_dicts_per_T, file)
         
 
-def aggregate_dicts(dict, key, val):
-    if  key not in dict:
-        dict[key] = [val]
-    else:
-        dict[key].append(val)
+
 
 def get_ml_flow_dict(dicts):
     all_value_dicts = {}
@@ -363,9 +359,9 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted'], default='t2t_vit_7_boosted', help='model')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
-    parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar10_t2t_7_boosted",help='Directory of checkpoint for trained model')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted'], default='t2t_vit_14_boosted', help='model')
+    parser.add_argument('--dataset', type=str, default='cifar100', help='dataset')
+    parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar100_t2t_vit_14_boosted",help='Directory of checkpoint for trained model')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
     parser.add_argument('--base', type=int, default=4)

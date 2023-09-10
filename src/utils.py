@@ -28,7 +28,11 @@ _logger = logging.getLogger(__name__)
 
 def free(torch_tensor):
     return torch_tensor.cpu().detach().numpy()
-
+def aggregate_dicts(dict, key, val):
+    if  key not in dict:
+        dict[key] = [val]
+    else:
+        dict[key].append(val)
 def resize_pos_embed(posemb, posemb_new): # example: 224:(14x14+1)-> 384: (24x24+1)
     # Rescale the grid of position embeddings when loading from state_dict. Adapted from
     # https://github.com/google-research/vision_transformer/blob/00883dd691c63a6830751563748663526e811cee/vit_jax/checkpoint.py#L224
