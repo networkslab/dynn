@@ -174,8 +174,8 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
             C = np.sum(free(general_prediction_sets.float()))
             in_general_conf = general_prediction_sets[np.arange(batch_size),targets]
             cov = free(torch.sum(in_general_conf))
-            metrics_to_aggregate_dict['C_'+str(alpha)] = (C, batch_size)
-            metrics_to_aggregate_dict['cov_'+str(alpha)] = (cov, batch_size)
+            metrics_to_aggregate_dict['gen_C_'+str(alpha)] = (C, batch_size)
+            metrics_to_aggregate_dict['gen_cov_'+str(alpha)] = (cov, batch_size)
 
     if 'gated_y_logits' in things_of_interest:
         gated_y_logits = things_of_interest['gated_y_logits']
