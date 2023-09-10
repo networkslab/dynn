@@ -2,8 +2,9 @@
 from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
 
-from models.t2t_vit import T2T_ViT
-from models.boosted_t2t_vit import Boosted_T2T_ViT
+from src.models.t2t_vit import T2T_ViT
+from src.models.boosted_t2t_vit import Boosted_T2T_ViT
+from src.models.weighted_t2t_vit import WeightedT2tVit
 
 def _cfg(url='', **kwargs):
     return {
@@ -19,6 +20,7 @@ default_cfgs = {
     'T2t_vit_7': _cfg(),
     'T2t_vit_7_baseline': _cfg(),
     'T2t_vit_7_boosted': _cfg(),
+    'T2t_vit_7_weighted': _cfg(),
     'T2t_vit_10': _cfg(),
     'T2t_vit_12': _cfg(),
     'T2t_vit_14': _cfg(),
@@ -59,6 +61,17 @@ def t2t_vit_7_boosted(pretrained=False, **kwargs): # adopt performer for tokens 
         kwargs.setdefault('qk_scale', 256 ** -0.5)
     model = Boosted_T2T_ViT(tokens_type='performer', embed_dim=256, depth=7, num_heads=4, mlp_ratio=2., **kwargs)
     model.default_cfg = default_cfgs['T2t_vit_7_boosted']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+@register_model
+def t2t_vit_7_weighted(pretrained=False, **kwargs): # adopt performer for tokens to token
+    if pretrained:
+        kwargs.setdefault('qk_scale', 256 ** -0.5)
+    model = WeightedT2tVit(tokens_type='performer', embed_dim=256, depth=7, num_heads=4, mlp_ratio=2., **kwargs)
+    model.default_cfg = default_cfgs['T2t_vit_7_weighted']
     if pretrained:
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
