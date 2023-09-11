@@ -6,9 +6,10 @@ import mlflow
 from timm.models import *
 from timm.models import create_model
 from collect_metric_iter import aggregate_metrics, process_things
+from data_loading.data_loader_helper import split_dataloader_in_n
 from learning_helper import LearningHelper
 from log_helper import log_aggregate_metrics_mlflow
-from utils import  progress_bar
+from utils import  aggregate_dicts, progress_bar
 from early_exit_utils import switch_training_phase
 from models.t2t_vit import TrainingPhase
 from plasticity_analysis.plasticity_metrics_utility import get_network_weight_norm_dict
@@ -84,39 +85,50 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
 
 
 
-def evaluate(best_acc, args, helper: LearningHelper, device, loader, epoch, prefix_logger: str):
+def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch, prefix_logger: str):
     helper.net.eval()
     metrics_dict = {}
+    if prefix_logger == 'test': # we should split the data and combine at the end
+        loaders = split_dataloader_in_n(init_loader, n=10)
+    else:
+        loaders = [init_loader]
+    metrics_dicts = []
+    log_dicts_of_trials = {}
+    average_trials_log_dict = {}
+    for loader in loaders:
+        for batch_idx, (inputs, targets) in enumerate(loader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            batch_size = targets.size(0)
+
+            loss, things_of_interest = helper.get_surrogate_loss(inputs, targets)
+            
+            # obtain the metrics associated with the batch
+            metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 
+            metrics_of_batch['loss'] = (loss.item(), batch_size)
+            
+
+            # keep track of the average metrics
+            metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G) 
+            
+            # format the metric ready to be displayed
+            log_dict = log_aggregate_metrics_mlflow(
+                    prefix_logger=prefix_logger,
+                    metrics_dict=metrics_dict, gates_count=args.G) 
+            display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
+
+            if args.barely_train:
+                    if batch_idx > 50:
+                        print(
+                            '++++++++++++++WARNING++++++++++++++ you are barely testing to test some things'
+                        )
+                        break
+        metrics_dicts.append(metrics_dict)
+        for k, v in log_dict.items():
+            aggregate_dicts(log_dicts_of_trials, k, v)
+    for k,v in log_dicts_of_trials.items():
+        average_trials_log_dict[k] = np.mean(v)
     
-    for batch_idx, (inputs, targets) in enumerate(loader):
-        inputs, targets = inputs.to(device), targets.to(device)
-        batch_size = targets.size(0)
-
-        loss, things_of_interest = helper.get_surrogate_loss(inputs, targets)
-        
-        # obtain the metrics associated with the batch
-        metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 
-        metrics_of_batch['loss'] = (loss.item(), batch_size)
-        
-
-        # keep track of the average metrics
-        metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G) 
-        
-        # format the metric ready to be displayed
-        log_dict = log_aggregate_metrics_mlflow(
-                prefix_logger=prefix_logger,
-                metrics_dict=metrics_dict, gates_count=args.G) 
-        display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
-
-        if args.barely_train:
-                if batch_idx > 50:
-                    print(
-                        '++++++++++++++WARNING++++++++++++++ you are barely testing to test some things'
-                    )
-                    break
-       
-
-    gated_acc = log_dict[prefix_logger+'/gated_acc']
+    gated_acc = average_trials_log_dict[prefix_logger+'/gated_acc']
     # Save checkpoint.
     if gated_acc > best_acc:
         print('Saving..')
@@ -133,9 +145,9 @@ def evaluate(best_acc, args, helper: LearningHelper, device, loader, epoch, pref
         )
         best_acc = gated_acc
     if args.use_mlflow:
-        log_dict[prefix_logger+'/test_acc']= gated_acc
-        mlflow.log_metrics(log_dict, step=epoch)
-    return metrics_dict, best_acc
+        average_trials_log_dict[prefix_logger+'/test_acc']= gated_acc
+        mlflow.log_metrics(average_trials_log_dict, step=epoch)
+    return metrics_dict, best_acc, log_dicts_of_trials
 
 # Any action based on the validation set
 def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False, alpha_conf = 0.04):
@@ -159,27 +171,29 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     ## compute the quantiles for the conformal intervals
     
     score, n = val_metrics_dict['gated_score']
-    
-    q_level = np.ceil((n+1)*(1-alpha_conf))/n
-    qhat_general = np.quantile(score, q_level, method='higher')
-    learning_helper.classifier_training_helper.set_single_conf_threshold(qhat_general)
-   
-    scores_per_gate, n = val_metrics_dict['score_per_gate']
-    qhats = []
-    for score in scores_per_gate:
-        if len(score) > 10 :
-            q_level = np.ceil((n+1)*(1-alpha_conf))/n
-            qhat = np.quantile(score, q_level, method='higher')
-        else:
-            qhat = qhat_general
+    alpha_confs = [0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05]
+    alpha_qhat_dict = {}
+    for alpha_conf in alpha_confs:
+        q_level = np.ceil((n+1)*(1-alpha_conf))/n
+        qhat_general = np.quantile(score, q_level, method='higher')
+        
+        scores_per_gate, n = val_metrics_dict['score_per_gate']
+        qhats = []
+        for scores_in_l in scores_per_gate:
+            if len(scores_in_l) > 10 :
+                q_level = np.ceil((n+1)*(1-alpha_conf))/n
+                qhat = np.quantile(scores_in_l, q_level, method='higher')
+            else:
+                qhat = qhat_general
+            qhats.append(qhat)
+        # add the last one
+        final_score, n = val_metrics_dict['final_score']
+        q_level = np.ceil((n+1)*(1-alpha_conf))/n
+        qhat = np.quantile(final_score, q_level, method='higher')
         qhats.append(qhat)
-    # add the last one
-    final_score, n = val_metrics_dict['final_score']
-    q_level = np.ceil((n+1)*(1-alpha_conf))/n
-    qhat = np.quantile(final_score, q_level, method='higher')
-    qhats.append(qhat)
+        alpha_qhat_dict[alpha_conf] = {'qhats':qhats, 'qhat':qhat}
 
-    learning_helper.classifier_training_helper.set_conf_thresholds_per_gate(qhats)
+    learning_helper.classifier_training_helper.set_conf_thresholds(alpha_qhat_dict)
    
 
     #learning_helper.gate_training_helper.set_ratios(pos_weights)

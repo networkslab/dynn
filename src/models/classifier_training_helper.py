@@ -19,8 +19,7 @@ class ClassifierTrainingHelper:
         self.net = net
         self.gate_selection_mode = gate_selection_mode
         self.loss_contribution_mode = loss_contribution_mode
-        self.single_conformal_threshold = None
-        self.conf_thresholds_per_gate = None
+        self.alpha_qhat_dict = None
         # boosted loss behaves as weighted
         if self.loss_contribution_mode == LossContributionMode.BOOSTED: 
             self.loss_contribution_mode = LossContributionMode.WEIGHTED
@@ -29,13 +28,10 @@ class ClassifierTrainingHelper:
             self.classifier_criterion = nn.CrossEntropyLoss(reduction='none')
         elif self.loss_contribution_mode == LossContributionMode.SINGLE:
             self.classifier_criterion = nn.CrossEntropyLoss()
-        
-    def set_single_conf_threshold(self, conformal_threshold):
-        self.single_conformal_threshold = conformal_threshold
-
-    def set_conf_thresholds_per_gate(self, conformal_thresholds):
-        self.conf_thresholds_per_gate = conformal_thresholds
-
+         
+    def set_conf_thresholds(self, alpha_qhat_dict):
+        self.alpha_qhat_dict = alpha_qhat_dict
+   
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor, compute_hamming = False):
         intermediate_logits = [] # logits from the intermediate classifiers
         num_exits_per_gate = []
@@ -125,21 +121,26 @@ class ClassifierTrainingHelper:
     
     def add_conformal_predictions(self, things_of_interest):
         
-        if self.single_conformal_threshold is not None:
+        if self.alpha_qhat_dict is not None:
             # we compute the prediction set from a single threshold computed on all the outputs, regardless of the gate
             gated_logits = things_of_interest['gated_y_logits']
             gated_prob = torch.nn.functional.softmax(gated_logits, dim=1)
-            gated_prediction_sets = gated_prob >= (1-self.single_conformal_threshold)
-            things_of_interest['general_prediction_sets'] = gated_prediction_sets
+            things_of_interest['general_prediction_sets'] = {}
+            for alpha, dict_qhats in self.alpha_qhat_dict.items():
+
+                gated_prediction_sets = gated_prob >= (1-dict_qhats['qhat'])
+                things_of_interest['general_prediction_sets'][alpha] = gated_prediction_sets
         
-        if self.conf_thresholds_per_gate is not None:
+       
             # we compute the prediction set from the threshold associated to the gate
             sample_exit_level_map = things_of_interest['sample_exit_level_map']
             all_logits = things_of_interest['intermediate_logits'] + [things_of_interest['final_logits']]
-            gated_prediction_sets = torch.zeros_like(all_logits[0]).bool()
-            for l, conf_thresh  in enumerate(self.conf_thresholds_per_gate):
-                prob_at_l = torch.nn.functional.softmax(all_logits[l], dim=1)
-                exited_prob_at_l = prob_at_l[sample_exit_level_map == l]
-                gated_prediction_sets[sample_exit_level_map == l] = exited_prob_at_l >= (1-conf_thresh)
-            things_of_interest['gated_prediction_sets'] = gated_prediction_sets
+            things_of_interest['gated_prediction_sets'] = {}
+            for alpha, dict_qhats in self.alpha_qhat_dict.items():
+                gated_prediction_sets = torch.zeros_like(all_logits[0]).bool()
+                for l, conf_thresh  in enumerate(dict_qhats['qhats']):
+                    prob_at_l = torch.nn.functional.softmax(all_logits[l], dim=1)
+                    exited_prob_at_l = prob_at_l[sample_exit_level_map == l]
+                    gated_prediction_sets[sample_exit_level_map == l] = exited_prob_at_l >= (1-conf_thresh)
+                things_of_interest['gated_prediction_sets'][alpha] = gated_prediction_sets
         return things_of_interest

@@ -20,7 +20,7 @@ from metrics_utils import compute_detached_score, compute_detached_uncertainty_m
 
 from models.register_models import *
 from models.boosted_t2t_vit import Boosted_T2T_ViT
-from utils import free
+from utils import aggregate_dicts, free
 import pickle as pk
 
 class CustomizedOpen():
@@ -83,8 +83,28 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
         test_targets.append(test_target)
     
     number_of_layers = len(model.module.blocks)
-    cost_per_layer = 1.0/number_of_layers * 100
-    costs_at_exit = [cost_per_layer * (i + 1) for i in range(number_of_layers)]
+    COST_PER_LAYER = 1.0/number_of_layers * 100
+    costs_at_exit = [COST_PER_LAYER * (i + 1) for i in range(number_of_layers)]
+
+    
+
+
+     # split the validation into 2
+    val_loader_1, val_loader_2 = split_dataloader_in_n(val_loader, n=2)
+    n_test = 10
+    test_loaders = split_dataloader_in_n(test_loader, n=n_test)
+    # we find the threshold with validation set 1
+    # we compute the quantiles for the conformal prediction with validation set 2
+    val_pred_1, val_target_1 = tester.calc_logit(val_loader_1)
+    val_pred_2, val_target_2 = tester.calc_logit(val_loader_2)
+    test_preds = []
+    test_targets = []
+    for test_loader in test_loaders:
+        test_pred, test_target = tester.calc_logit(test_loader)
+        test_preds.append(test_pred)
+        test_targets.append(test_target)
+    
+    
 
     acc_val_last = -1
     acc_test_last = -1
@@ -102,11 +122,11 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred_1, val_target_1, probs, costs_at_exit) # find the T with val_1
            
             metrics_dict_val = tester.dynamic_eval_with_threshold(val_pred_2, val_target_2, costs_at_exit, T) # compute conformal
-            qhat_from_val = metrics_dict_val['qhat']
+            qhats_from_val = metrics_dict_val['qhats']
             temp_from_val = metrics_dict_val['temp']
             metrics_dicts = []
             for i in range(n_test):
-                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, alpha_conf=None, qhat=qhat_from_val, temp=temp_from_val
+                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, qhats=qhats_from_val, temp=temp_from_val
                 )
                 metrics_dicts.append(metrics_dict)
             
@@ -115,10 +135,9 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             acc_test = mlflow_dict['ACC']
             exp_cost = mlflow_dict['EXPECTED_FLOPS']
             ece = mlflow_dict['ECE']
-            C = mlflow_dict['gated_average_inef']
-            emp_alpha = mlflow_dict['gated_average_cov']
+            
             #print('valid acc: {:.3f}, test acc: {:.3f}, test cost: {:.2f}, test ece: {:.2f}% '.format(acc_val, acc_test, exp_cost, metrics_dict['ECE']* 100.0))
-            print('[{:.3f}, {:.2f}, {:.2f}, {:.2f}, {:.2f}],  '.format(acc_test, exp_cost, ece, C, emp_alpha))
+            print('[{:.3f}, {:.2f}, {:.2f}],  '.format(acc_test, exp_cost, ece))
             mlflow.log_metrics(mlflow_dict, step=p)
             #fout.write('Cost: {}, Test acc {}\n'.format(exp_cost.item(), acc_test))
             # for k, v in metrics_dict.items():
@@ -130,11 +149,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
         pk.dump(all_value_dicts_per_T, file)
         
 
-def aggregate_dicts(dict, key, val):
-    if  key not in dict:
-        dict[key] = [val]
-    else:
-        dict[key].append(val)
+
 
 def get_ml_flow_dict(dicts):
     all_value_dicts = {}
@@ -243,7 +258,7 @@ class Tester(object):
 
         return acc * 100.0 / n_sample, expected_flops, T
 
-    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds, alpha_conf = 0.03, qhat=None, temp=None):
+    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds, qhats=None, temp=None):
         metrics_dict = {}
         n_stage, n_sample, _ = logits.size()
         max_preds, argmax_preds = logits.max(dim=2, keepdim=False) # take the max logits as confidence
@@ -273,20 +288,28 @@ class Tester(object):
             temp, cal_logits = stolen_calibrate(gated_logits, targets)
         else:
             cal_logits = stolen_calibrate(gated_logits, targets, temp=temp)
-        if alpha_conf is not None:
-            score = compute_detached_score(gated_logits, targets)
-            q_level = np.ceil((n_sample+1)*(1-alpha_conf))/n_sample
-            qhat = np.quantile(score, q_level, method='higher')
-            metrics_dict['qhat'] = qhat
+
+        alphas = [0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05]
+
+        if qhats is None:
+            qhats = []
+            for alpha_conf in alphas:
+                score = compute_detached_score(gated_logits, targets)
+                q_level = np.ceil((n_sample+1)*(1-alpha_conf))/n_sample
+                qhat = np.quantile(score, q_level, method='higher')
+                qhats.append(qhat)
+            metrics_dict['qhats'] = qhats
         
-        elif qhat is not None:
-            gated_prob = torch.softmax(gated_logits, dim=1)
-            gated_prediction_sets = gated_prob >= (1-qhat)
-            gated_average_inef = np.mean(np.sum(free(gated_prediction_sets.float()), axis=1))
-            in_gated_conf = gated_prediction_sets[np.arange(n_sample),free(targets)]
-            gated_average_cov = np.mean(free(in_gated_conf))
-            metrics_dict['gated_average_inef'] = gated_average_inef
-            metrics_dict['gated_average_cov'] = gated_average_cov*100.0
+        elif qhats is not None:
+            for i, qhat in enumerate(qhats):
+                alpha = alphas[i]
+                gated_prob = torch.softmax(gated_logits, dim=1)
+                gated_prediction_sets = gated_prob >= (1-qhat)
+                gated_average_inef = np.mean(np.sum(free(gated_prediction_sets.float()), axis=1))
+                in_gated_conf = gated_prediction_sets[np.arange(n_sample),free(targets)]
+                gated_average_cov = np.mean(free(in_gated_conf))
+                metrics_dict['C_'+str(alpha)] = gated_average_inef
+                metrics_dict['cov_'+str(alpha)] = gated_average_cov*100.0
         _, _, ece, _, _ = compute_detached_uncertainty_metrics(cal_logits, targets)
         for k in range(n_stage):
             _t = exit_count[k] * 1.0 / n_sample
@@ -334,26 +357,31 @@ def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_s
     return net
 
 def main(args):
-    num_classes = 0
+    
     IMG_SIZE = 224
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     cfg = vars(args)
     if args.use_mlflow:
         name = "boosted_adaptive_inference"
         setup_mlflow(name, cfg, experiment_name='boosted_evaluation')
+   
+
     if args.dataset == 'cifar10':
+        NUM_CLASSES = 10
+        checkpoint_dir = "checkpoint_cifar10_t2t_7_weighted"
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
         num_classes = 10
     elif args.dataset == 'cifar100':
+        NUM_CLASSES = 100
+        checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_boosted"
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
         num_classes = 100
     else:
         raise 'Unsupported dataset'
-    # LOAD MODEL
-    checkpoint_path = get_latest_checkpoint_path(args.checkpoint_dir)
-    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, num_classes, IMG_SIZE)
+     # LOAD MODEL
+    checkpoint_path = get_latest_checkpoint_path(checkpoint_dir)
+    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
     net = net.to(device)
-
     dynamic_evaluate(net, test_loader, val_loader, args)
     mlflow.end_run()
 
@@ -362,9 +390,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted'], default='t2t_vit_7_boosted', help='model')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted'], default='t2t_vit_7_weighted', help='model')
     parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
-    parser.add_argument('--checkpoint_dir', type=str, default="checkpoint_cifar10_t2t_7_weighted",help='Directory of checkpoint for trained model')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
     parser.add_argument('--base', type=int, default=4)
