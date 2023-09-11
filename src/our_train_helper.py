@@ -171,7 +171,7 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     ## compute the quantiles for the conformal intervals
     
     score, n = val_metrics_dict['gated_score']
-    alpha_confs = [0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5]
+    alpha_confs = [0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05]
     alpha_qhat_dict = {}
     for alpha_conf in alpha_confs:
         q_level = np.ceil((n+1)*(1-alpha_conf))/n
