@@ -161,10 +161,10 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     for gate, count in exit_count_optimal_gate[0].items():
         count = max(count, 0.1)
         pos_weight = total / (total - count)
-        pos_weight = min(pos_weight, 5)
+        #pos_weight = min(pos_weight, 5)
         pos_weights.append(pos_weight)
         
-    
+    print(pos_weights)
     learning_helper.gate_training_helper.set_ratios(pos_weights)
     
 
