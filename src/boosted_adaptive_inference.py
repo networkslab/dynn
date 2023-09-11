@@ -66,6 +66,21 @@ def stolen_calibrate(logits, targets, temp=None):
 
 def dynamic_evaluate(model, test_loader, val_loader, args):
     tester = Tester(model, args)
+     # split the validation into 2
+    val_loader_1, val_loader_2 = split_dataloader_in_n(val_loader, n=2)
+    n_test = 2
+    test_loaders = split_dataloader_in_n(test_loader, n=n_test)
+    # we find the threshold with validation set 1
+    # we compute the quantiles for the conformal prediction with validation set 2
+    val_pred_1, val_target_1 = tester.calc_logit(val_loader_1)
+    val_pred_2, val_target_2 = tester.calc_logit(val_loader_2)
+    test_preds = []
+    test_targets = []
+    for test_loader in test_loaders:
+        test_pred, test_target = tester.calc_logit(test_loader)
+        test_preds.append(test_pred)
+        test_targets.append(test_target)
+    
     number_of_layers = len(model.module.blocks)
     COST_PER_LAYER = 1.0/number_of_layers * 100
     costs_at_exit = [COST_PER_LAYER * (i + 1) for i in range(number_of_layers)]
@@ -351,10 +366,12 @@ def main(args):
         NUM_CLASSES = 10
         checkpoint_dir = "checkpoint_cifar10_t2t_7_boosted"
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
+        num_classes = 10
     elif args.dataset == 'cifar100':
         NUM_CLASSES = 100
         checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_boosted"
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
+        num_classes = 100
     else:
         raise 'Unsupported dataset'
      # LOAD MODEL
@@ -386,7 +403,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr_milestones', default='100,200', type=str, help='lr decay milestones')
     parser.add_argument('--ensemble_reweight', default="1.0", type=str, help='ensemble weight of early classifiers')
     parser.add_argument('--loss_equal', action='store_true', help='loss equalization')
-    parser.add_argument('--save_suffix', default="t2t_vit_14_100",type=str)
+    parser.add_argument('--save_suffix', default="t2t_vit_14_cifar_100",type=str)
     parser.add_argument('--batch-size', type=int, default=64)
     args = parser.parse_args()
     main(args)

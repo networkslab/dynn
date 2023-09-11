@@ -150,7 +150,7 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
     return metrics_dict, best_acc, log_dicts_of_trials
 
 # Any action based on the validation set
-def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False):
+def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_with_val=False, alpha_conf = 0.04):
    
     # we fix the 1/0 ratios of of gate tasks based on the optimal percent exit in the validation sets
     
