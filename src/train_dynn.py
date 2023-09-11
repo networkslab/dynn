@@ -174,6 +174,7 @@ if isinstance(net.module, Boosted_T2T_ViT):
         accs = test_boosted(args, net, test_loader, epoch)
         # stored_metrics_test = test(epoch)
         scheduler.step()
+    # TODO: Move this into a helper method so different models can be saved with the same dict keys.
     state = {
         'state_dict': net.state_dict(),
         'intermediate_head_positions': net.module.intermediate_head_positions
