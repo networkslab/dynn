@@ -17,9 +17,7 @@ from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifa
 from timm.models import *
 from timm.models import create_model
 from metrics_utils import compute_detached_score, compute_detached_uncertainty_metrics
-
 from models.register_models import *
-from models.boosted_t2t_vit import Boosted_T2T_ViT
 from utils import aggregate_dicts, free
 import pickle as pk
 
@@ -145,7 +143,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             #     for item in v:
             #         fout.write(f'{item}%\n')
             # fout.write('**************************\n')
-    with open(args.results_file, 'wb') as file:
+    with open(args.arch+'_'+args.dataset+'_resultss.pk', 'wb') as file:
         pk.dump(all_value_dicts_per_T, file)
         
 
@@ -368,7 +366,7 @@ def main(args):
 
     if args.dataset == 'cifar10':
         NUM_CLASSES = 10
-        checkpoint_dir = "checkpoint_cifar10_t2t_7_weighted"
+        checkpoint_dir = "checkpoint_cifar10_t2t_vit_7_weighted"
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
         num_classes = 10
     elif args.dataset == 'cifar100':

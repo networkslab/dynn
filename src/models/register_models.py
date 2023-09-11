@@ -2,9 +2,9 @@
 from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
 
-from src.models.t2t_vit import T2T_ViT
-from src.models.boosted_t2t_vit import Boosted_T2T_ViT
-from src.models.weighted_t2t_vit import WeightedT2tVit
+from models.t2t_vit import T2T_ViT
+from models.boosted_t2t_vit import Boosted_T2T_ViT
+from models.weighted_t2t_vit import WeightedT2tVit
 
 def _cfg(url='', **kwargs):
     return {
