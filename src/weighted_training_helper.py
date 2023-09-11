@@ -4,6 +4,7 @@ import torch
 import mlflow
 from timm.models import *
 from timm.models import create_model
+from utils import save_dynn_checkpoint
 import pandas as pd
 import time
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
@@ -29,22 +30,7 @@ def train_weighted_net(train_loader, test_loader, model, meta_net, optimizer, me
             print("Increase in validation accuracy of last trainable head, serializing model")
 
             best_acc_top_1 = val_prec_last_head
-            state = {
-                'net': model.state_dict(), # TODO remove this
-                'state_dict': model.state_dict(),
-                'acc': best_acc_top_1,
-                'epoch': epoch,
-                'intermediate_head_positions': model.module.intermediate_head_positions
-            }
-            checkpoint_path = get_abs_path(['checkpoint'])
-            checkpoint_path = f'{checkpoint_path}/checkpoint_{args.dataset}_{args.arch}'
-            if not os.path.isdir(checkpoint_path):
-                os.mkdir(checkpoint_path)
-            torch.save(
-                state,
-                f'{checkpoint_path}/ckpt_ep{epoch}_acc{best_acc_top_1}.pth'
-            )
-
+            save_dynn_checkpoint(model, f'checkpoint_{args.dataset}_{args.arch}', f'ckpt_ep{epoch}_acc{best_acc_top_1}.pth')
 
 
 def train_weighted_net_single_epoch(train_loader, model, meta_net, optimizer, meta_optimizer, epoch, target_probs, args):
@@ -86,7 +72,7 @@ def train_weighted_net_single_epoch(train_loader, model, meta_net, optimizer, me
 
         if i % args.meta_interval == 0:
             # deep copy backbone
-
+            print("TRAINING META NETWORK")
             pseudo_net = deep_copy_model(model, args)
             pseudo_net.train()
 
@@ -480,7 +466,7 @@ def calc_target_probs(num_exits):
     return probs_list
 
 def deep_copy_model(model, args):
-    NUM_CLASSES = 10
+    NUM_CLASSES = 10 if args.dataset == 'cifar10' else 100
     IMG_SIZE = 224
     model_name = args.arch
     pseudo_net = create_model(model_name, # TODO configure this to accept the architecture (boosted vs others etc...)

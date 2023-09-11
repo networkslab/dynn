@@ -11,6 +11,7 @@
 - progress_bar: progress bar mimic xlua.progress.
 '''
 import os
+from data_loading.data_loader_helper import get_abs_path
 import sys
 import time
 import torch
@@ -88,6 +89,17 @@ def load_state_dict(checkpoint_path, model, use_ema=False, num_classes=1000, del
         _logger.error("No checkpoint found at '{}'".format(checkpoint_path))
         raise FileNotFoundError()
 
+def save_dynn_checkpoint(model, subdir_name, file_name): # model should be a dynn with intermediate head positions.
+    state = {
+        'state_dict': model.state_dict(),
+        'intermediate_head_positions': model.module.intermediate_head_positions
+    }
+    checkpoint_folder_path = get_abs_path(["checkpoint"])
+
+    target_checkpoint_folder_path = f'{checkpoint_folder_path}/{subdir_name}'
+    if not os.path.isdir(target_checkpoint_folder_path):
+        os.mkdir(target_checkpoint_folder_path)
+    torch.save(state, f'{target_checkpoint_folder_path}/{file_name}')
 def fix_the_seed(seed):
     random.seed(seed)
     np.random.seed(seed)

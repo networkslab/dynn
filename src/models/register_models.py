@@ -25,6 +25,7 @@ default_cfgs = {
     'T2t_vit_12': _cfg(),
     'T2t_vit_14': _cfg(),
     'T2t_vit_14_boosted': _cfg(),
+    'T2t_vit_14_weighted': _cfg(),
     'T2t_vit_19': _cfg(),
     'T2t_vit_24': _cfg(),
     'T2t_vit_t_14': _cfg(),
@@ -117,6 +118,17 @@ def t2t_vit_14_boosted(pretrained=False, **kwargs):  # adopt performer for token
         kwargs.setdefault('qk_scale', 384 ** -0.5)
     model = Boosted_T2T_ViT(tokens_type='performer', embed_dim=384, depth=14, num_heads=6, mlp_ratio=3., **kwargs)
     model.default_cfg = default_cfgs['T2t_vit_14_boosted']
+    if pretrained:
+        load_pretrained(
+            model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
+    return model
+
+@register_model
+def t2t_vit_14_weighted(pretrained=False, **kwargs):  # adopt performer for tokens to token
+    if pretrained:
+        kwargs.setdefault('qk_scale', 384 ** -0.5)
+    model = WeightedT2tVit(tokens_type='performer', embed_dim=384, depth=14, num_heads=6, mlp_ratio=3., **kwargs)
+    model.default_cfg = default_cfgs['T2t_vit_14_weighted']
     if pretrained:
         load_pretrained(
             model, num_classes=model.num_classes, in_chans=kwargs.get('in_chans', 3))
