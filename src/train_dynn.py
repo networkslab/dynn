@@ -86,7 +86,8 @@ if args.use_mlflow:
     if args.barely_train:
         setup_mlflow(name, cfg, experiment_name='test run')
     else:
-        setup_mlflow(name, cfg, experiment_name='high ic problem')
+        experiment_name = 'check_bal'
+        setup_mlflow(name, cfg, experiment_name=experiment_name)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy
@@ -222,7 +223,7 @@ else:
         set_from_validation(learning_helper, val_metrics_dict)
         #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader) # this can make gpu run OOM
         scheduler.step()
-with open(args.dataset+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
+with open(experiment_name+'_'+args.dataset+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
     pk.dump(log_dict, file)
 
 mlflow.end_run()
