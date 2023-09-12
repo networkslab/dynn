@@ -44,6 +44,7 @@ class GateTrainingHelper:
         self.gate_training_scheme = gate_training_scheme
         self.device  = device
         self.set_ratios([1 for _ in range(G)])
+        
         self.gate_criterion = nn.BCEWithLogitsLoss(reduction='none')
         self.gate_objective = gate_objective
         if self.gate_objective == GateObjective.CrossEntropy:
@@ -73,6 +74,7 @@ class GateTrainingHelper:
     def set_ratios(self, pos_weights):
         self.pos_weights = torch.Tensor(pos_weights).to(self.device)
         
+ 
 
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor):
         final_head, intermediate_zs, intermediate_codes = self.net.module.forward_features(inputs)

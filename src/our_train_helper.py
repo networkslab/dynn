@@ -157,15 +157,18 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     exit_count_optimal_gate = val_metrics_dict['exit_count_optimal_gate'] # ({0: 0, 1: 0, 2: 0, 3: 0, 4: 6, 5: 72}, 128)
     total = exit_count_optimal_gate[1]
     pos_weights = []
-    
+    fractions = []
     for gate, count in exit_count_optimal_gate[0].items():
         count = max(count, 0.1)
         pos_weight = total / (total - count)
+        fraction = count / total
+        fractions.append(fraction)
         #pos_weight = min(pos_weight, 5)
         pos_weights.append(pos_weight)
         
     print(pos_weights)
     learning_helper.gate_training_helper.set_ratios(pos_weights)
+    learning_helper.gate_training_helper.set_fractions(fractions)
     
 
     ## compute the quantiles for the conformal intervals

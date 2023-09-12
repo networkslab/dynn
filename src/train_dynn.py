@@ -46,7 +46,7 @@ parser.add_argument('--resume', '-r',action='store_true',help='resume from check
 parser.add_argument('--model', type=str,default='learn_gate_direct')  # learn_gate, learn_gate_direct
 parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
-parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
+parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.FRACTION, choices=GateSelectionMode)
 parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.CrossEntropy, choices=GateObjective)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
 parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT', help='Gate training scheme (how to handle gates after first exit)',
