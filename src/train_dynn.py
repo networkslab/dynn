@@ -18,7 +18,7 @@ from models.gate_training_helper import GateObjective
 from our_train_helper import set_from_validation, evaluate, train_single_epoch
 from weighted_training_helper import train_weighted_net
 from threshold_helper import fixed_threshold_test
-from utils import fix_the_seed
+from utils import fix_the_seed, save_dynn_checkpoint
 from models.register_models import *
 from models.boosted_t2t_vit import Boosted_T2T_ViT
 from models.weighted_t2t_vit import WeightedT2tVit
@@ -30,7 +30,7 @@ parser = argparse.ArgumentParser(
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
                     choices=['t2t_vit_7_boosted', 't2t_vit_7_baseline','t2t_vit_7', 't2t_vit_7_weighted',
-                             't2t_vit_14', 't2t_vit_14_boosted'], # baseline is to train only with warmup, no gating
+                             't2t_vit_14', 't2t_vit_14_boosted', 't2t_vit_14_weighted'], # baseline is to train only with warmup, no gating
                     default='t2t_vit_7', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
@@ -175,18 +175,7 @@ if isinstance(net.module, Boosted_T2T_ViT):
         accs = test_boosted(args, net, test_loader, epoch)
         # stored_metrics_test = test(epoch)
         scheduler.step()
-    # TODO: Move this into a helper method so different models can be saved with the same dict keys.
-    state = {
-        'state_dict': net.state_dict(),
-        'intermediate_head_positions': net.module.intermediate_head_positions
-    }
-    checkpoint_folder_path = get_abs_path(["checkpoint"])
-
-    # WARNING: for 7 boosted the checkpoint was saved as f'{checkpoint_folder_path}/checkpoint_{args.dataset}_t2t_7_boosted'
-    target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_{args.arch}'
-    if not os.path.isdir(target_checkpoint_folder_path):
-        os.mkdir(target_checkpoint_folder_path)
-    torch.save(state, f'{target_checkpoint_folder_path}/last_{accs[-1]}_second_to_last_{accs[-2]}.pth')
+    save_dynn_checkpoint(net, f'checkpoint_{args.dataset}_{args.arch}', f'last_{accs[-1]}_second_to_last_{accs[-2]}.pth')
 
 elif 'baseline' in args.arch: # only training with warmup
     learning_helper = LearningHelper(net, optimizer, args, device)
@@ -208,7 +197,7 @@ elif 'weighted' in args.arch: # stupid python issue i don't wanna deal with now 
     if device == 'cuda':
         meta_net = torch.nn.DataParallel(meta_net)
     meta_optimizer = torch.optim.Adam(meta_net.parameters(), lr=args.meta_lr, weight_decay=args.meta_weight_decay)
-    train_weighted_net(train_loader, test_loader, net, meta_net, optimizer, meta_optimizer, args)
+    train_weighted_net(train_loader, test_loader, net, meta_net, optimizer, meta_optimizer, args, with_serialization=True)
 else:
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
