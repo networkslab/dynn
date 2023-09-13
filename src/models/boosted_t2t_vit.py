@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from .custom_modules.identity_gate import IdentityGate
 from models.gradient_rescale import GradientRescaleFunction
 from models.t2t_vit import T2T_ViT
 
@@ -23,6 +24,8 @@ class Boosted_T2T_ViT(T2T_ViT):
             self.ensemble_reweight = self.ensemble_reweight * n_blocks
         elif len(self.ensemble_reweight) == 2:
             self.ensemble_reweight = list(np.linspace(self.ensemble_reweight[0], self.ensemble_reweight[1], n_blocks))
+        self.gates = nn.ModuleList([ # Added for flops computation
+            IdentityGate() for _ in range(len(intermediate_head_positions))])
    
 
     def boosted_forward(self, x): # Equivalent of forward in msdnet with gradient rescaling.
@@ -70,7 +73,27 @@ class Boosted_T2T_ViT(T2T_ViT):
         preds = preds[1:]
         return preds
 
+    def forward_for_inference(self, x):
+        res = []
+        nBlocks = len(self.blocks)
+        B = x.shape[0]
+        x = self.tokens_to_token(x)
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+        x = x + self.pos_embed
+        x = self.pos_drop(x)
 
-
+        for blk_idx, blk in enumerate(self.blocks):
+            x, _ = blk.forward_get_code(x)
+            # x[-1] = gradient_rescale(x[-1], 1.0 / (nBlocks - blk_idx))
+            normalized = self.norm(x)
+            if blk_idx < len(self.intermediate_heads): # intermediate block
+                pred = self.intermediate_heads[blk_idx](normalized[:, 0])
+                self.gates[blk_idx](pred)
+            else:
+                pred = self.head(normalized[:, 0]) # last block
+            x[-1] = gradient_rescale(x[-1], (nBlocks - blk_idx - 1))
+            res.append(pred)
+        return res
 
 gradient_rescale = GradientRescaleFunction.apply
