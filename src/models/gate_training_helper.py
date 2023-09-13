@@ -1,21 +1,6 @@
-from shutil import disk_usage
+
 import torch
 import torch.nn as nn
-from queue import Queue
-import random 
-from timm.models.helpers import load_pretrained
-from timm.models.registry import register_model
-from timm.models.layers import trunc_normal_
-import numpy as np
-from metrics_utils import check_hamming_vs_acc
-from models.custom_modules.gate import GateType
-from .token_transformer import Token_transformer
-from .token_performer import Token_performer
-from .transformer_block import Block, get_sinusoid_encoding
-from .custom_modules.custom_GELU import CustomGELU
-from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
-from .custom_modules.learnable_code_gate import LearnableCodeGate
-from .custom_modules.learnable_complex_gate import LearnableComplexGate
 from sklearn.metrics import accuracy_score
 from enum import Enum
 
@@ -44,6 +29,7 @@ class GateTrainingHelper:
         self.gate_training_scheme = gate_training_scheme
         self.device  = device
         self.set_ratios([1 for _ in range(G)])
+        
         self.gate_criterion = nn.BCEWithLogitsLoss(reduction='none')
         self.gate_objective = gate_objective
         if self.gate_objective == GateObjective.CrossEntropy:
@@ -73,6 +59,7 @@ class GateTrainingHelper:
     def set_ratios(self, pos_weights):
         self.pos_weights = torch.Tensor(pos_weights).to(self.device)
         
+ 
 
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor):
         final_head, intermediate_zs, intermediate_codes = self.net.module.forward_features(inputs)
@@ -120,29 +107,10 @@ class GateTrainingHelper:
         hot_encode_subsequent = gate_target_one_hot.cumsum(dim=1)
         gate_loss = self.gate_criterion(gate_logits.flatten(), hot_encode_subsequent.double().flatten())
 
-        IMBALANCE_ON_TRAINING = False
-        
-        if IMBALANCE_ON_TRAINING: # single 1/0 ratio computed directly on the training batch
-            
-            # addressing the class imbalance avec classe
-            num_ones = torch.sum(hot_encode_subsequent)
-            # add a check up to make sure we have at least 1 ones. If not, add one at random to avoid nan issue
-            if num_ones < 1:
-                print('Warning, this batch is pushing everything to the last gate')
-                hot_encode_subsequent[random.choice(range(hot_encode_subsequent.shape[0])),-1] = 1 # place it at the second last gate for some random point
-                num_ones = torch.sum(hot_encode_subsequent)
-                assert num_ones == 1
-            num_zeros = (torch.prod(torch.Tensor(list(hot_encode_subsequent.shape)))) - num_ones
-            zero_to_one_ratio = num_zeros / num_ones
-            ones_loss_multiplier = hot_encode_subsequent.double().flatten() * zero_to_one_ratio # balances ones
-            zeros_loss_multiplier = torch.logical_not(hot_encode_subsequent).double().flatten()
-            multiplier = ones_loss_multiplier + zeros_loss_multiplier
-            
-            
-        else: # one 1/0 ratio per gate computed on a validation set
-            ones_loss_multiplier = (hot_encode_subsequent.double() * self.pos_weights).flatten() # balances ones
-            zeros_loss_multiplier = torch.logical_not(hot_encode_subsequent).double().flatten()
-            multiplier = ones_loss_multiplier + zeros_loss_multiplier
+        # one 1/0 ratio per gate computed on a validation set
+        ones_loss_multiplier = (hot_encode_subsequent.double() * self.pos_weights).flatten() # balances ones
+        zeros_loss_multiplier = torch.logical_not(hot_encode_subsequent).double().flatten()
+        multiplier = ones_loss_multiplier + zeros_loss_multiplier
 
         gate_loss = torch.mean(gate_loss * multiplier)
         # compute gate accuracies

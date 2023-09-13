@@ -18,9 +18,7 @@ from timm.models import *
 from timm.models import create_model
 from models.op_counter import measure_model_and_assign_cost_per_exit
 from metrics_utils import compute_detached_score, compute_detached_uncertainty_metrics
-
 from models.register_models import *
-from models.boosted_t2t_vit import Boosted_T2T_ViT
 from utils import aggregate_dicts, free
 import pickle as pk
 
@@ -122,8 +120,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             temp_from_val = metrics_dict_val['temp']
             metrics_dicts = []
             for i in range(n_test):
-                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, qhats=qhats_from_val, temp=temp_from_val
-                )
+                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, qhats=qhats_from_val, temp=temp_from_val)
                 metrics_dicts.append(metrics_dict)
             
             mlflow_dict, all_value_dicts = get_ml_flow_dict(metrics_dicts)
@@ -141,7 +138,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             #     for item in v:
             #         fout.write(f'{item}%\n')
             # fout.write('**************************\n')
-    with open(args.results_file, 'wb') as file:
+    with open(args.arch+'_'+args.dataset+'_results.pk', 'wb') as file:
         pk.dump(all_value_dicts_per_T, file)
         
 
@@ -327,7 +324,7 @@ class Tester(object):
         metrics_dict['temp'] = temp
         return metrics_dict
 
-def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_size):
+def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_size, G):
     checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
     
     net = create_model(arch,
@@ -344,14 +341,16 @@ def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_s
                        img_size=img_size)
     # TODO: fix this for weighted to serialize where the intermediate head positions were
     # net.set_intermediate_heads(checkpoint['intermediate_head_positions'])
-    net.set_intermediate_heads([i for i in range(6)])
+    net.set_intermediate_heads([i for i in range(G)])
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
         cudnn.benchmark = True
+
     if 'state_dict' in checkpoint.keys():
         net.load_state_dict(checkpoint['state_dict'], strict=False)
     else:
         net.load_state_dict(checkpoint['net'], strict=False)
+
     return net
 
 def main(args):
@@ -365,18 +364,31 @@ def main(args):
 
     if args.dataset == 'cifar10':
         NUM_CLASSES = 10
-        checkpoint_dir = "checkpoint_cifar10_t2t_vit_7_weighted" if args.arch == 't2t_vit_7_weighted' else 'checkpoint_cifar10_t2t_7_boosted'
+        if 'weighted' in args.arch:
+            checkpoint_dir = "checkpoint_cifar10_t2t_vit_7_weighted"
+        else:
+            checkpoint_dir = "checkpoint_cifar10_t2t_7_boosted"
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
+        num_classes = 10
+        G = 7
     elif args.dataset == 'cifar100':
         NUM_CLASSES = 100
-        checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_weighted" if args.arch == 't2t_vit_14_weighted' else 'checkpoint_cifar100_t2t_14_boosted'
+        if 'weighted' in args.arch:
+            checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_weighted"
+        else:
+            checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_boosted"
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
+        num_classes = 100
+        G = 14
+
     else:
         raise 'Unsupported dataset'
      # LOAD MODEL
     checkpoint_path = get_latest_checkpoint_path(checkpoint_dir)
+
     net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
     measure_model_and_assign_cost_per_exit(net.module, IMG_SIZE, IMG_SIZE, NUM_CLASSES)
+
     net = net.to(device)
     dynamic_evaluate(net, test_loader, val_loader, args)
     mlflow.end_run()
@@ -386,8 +398,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted'], default='t2t_vit_7_weighted', help='model')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='dataset')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted'], default='t2t_vit_14_weighted', help='model')
+    parser.add_argument('--dataset', type=str, default='cifar100', help='dataset')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
     parser.add_argument('--base', type=int, default=4)
