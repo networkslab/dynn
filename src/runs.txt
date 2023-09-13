@@ -30,4 +30,5 @@ python train_dynn.py --ce_ic_tradeoff 0.1 --dataset cifar100 --arch t2t_vit_14;
 python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar100 --arch t2t_vit_14;
 python train_dynn.py --ce_ic_tradeoff 3 --dataset cifar100 --arch t2t_vit_14;
 python train_dynn.py --ce_ic_tradeoff 1.5 --dataset cifar100 --arch t2t_vit_14;
-
+python train_dynn.py --dataset cifar100 --arch t2t_vit_14_boosted --num_epoch 30;
+python train_dynn.py --dataset cifar100 --arch t2t_vit_14_weighted --num_epoch 30;
