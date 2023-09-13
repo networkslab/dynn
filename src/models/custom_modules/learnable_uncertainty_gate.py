@@ -34,3 +34,12 @@ class LearnableUncGate(Gate):
         mask = torch.zeros(input.shape[0], dtype=torch.bool)
         mask[idx_preds_above_threshold] = True
         return confident_preds, mask # 1 means early exit, 0 means propagate downstream
+
+    def get_flops(self, num_classes):
+        # compute flops for preprocssing of input and then for linear layer.
+        p_max_flops = num_classes # comparison across the logits
+        margin_flops = num_classes + 1 # compare top1 with top2
+        entropy_flops = num_classes * 2 # compute entropy p log p then sum those values
+        entropy_pow_flops = num_classes * 5 # 1 for raising to power, 1 for computing normalizing denom, 1 for scaling each pow then 2 for entropy computation
+        linear_flops = self.dim + 1 # dim + bias
+        return p_max_flops + margin_flops + entropy_flops + entropy_pow_flops + linear_flops

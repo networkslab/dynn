@@ -16,6 +16,7 @@ from log_helper import setup_mlflow
 from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, split_dataloader_in_n
 from timm.models import *
 from timm.models import create_model
+from models.op_counter import measure_model_and_assign_cost_per_exit
 from metrics_utils import compute_detached_score, compute_detached_uncertainty_metrics
 
 from models.register_models import *
@@ -81,13 +82,8 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
         test_pred, test_target = tester.calc_logit(test_loader)
         test_preds.append(test_pred)
         test_targets.append(test_target)
-    
-    number_of_layers = len(model.module.blocks)
-    COST_PER_LAYER = 1.0/number_of_layers * 100
-    costs_at_exit = [COST_PER_LAYER * (i + 1) for i in range(number_of_layers)]
 
-    
-
+    costs_at_exit = model.module.mult_add_at_exits
 
      # split the validation into 2
     val_loader_1, val_loader_2 = split_dataloader_in_n(val_loader, n=2)
@@ -352,8 +348,10 @@ def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_s
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
         cudnn.benchmark = True
-    # Warning: make sure the serialized object has 'net' for the state_dict. We were using state_dict before but for weighted the model was serialized with 'net'
-    net.load_state_dict(checkpoint['net'], strict=False)
+    if 'state_dict' in checkpoint.keys():
+        net.load_state_dict(checkpoint['state_dict'], strict=False)
+    else:
+        net.load_state_dict(checkpoint['net'], strict=False)
     return net
 
 def main(args):
@@ -364,23 +362,21 @@ def main(args):
     if args.use_mlflow:
         name = "boosted_adaptive_inference"
         setup_mlflow(name, cfg, experiment_name='boosted_evaluation')
-   
 
     if args.dataset == 'cifar10':
         NUM_CLASSES = 10
-        checkpoint_dir = "checkpoint_cifar10_t2t_7_weighted"
+        checkpoint_dir = "checkpoint_cifar10_t2t_vit_7_weighted" if args.arch == 't2t_vit_7_weighted' else 'checkpoint_cifar10_t2t_7_boosted'
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
-        num_classes = 10
     elif args.dataset == 'cifar100':
         NUM_CLASSES = 100
-        checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_boosted"
+        checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_weighted" if args.arch == 't2t_vit_14_weighted' else 'checkpoint_cifar100_t2t_14_boosted'
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
-        num_classes = 100
     else:
         raise 'Unsupported dataset'
      # LOAD MODEL
     checkpoint_path = get_latest_checkpoint_path(checkpoint_dir)
     net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
+    measure_model_and_assign_cost_per_exit(net.module, IMG_SIZE, IMG_SIZE, NUM_CLASSES)
     net = net.to(device)
     dynamic_evaluate(net, test_loader, val_loader, args)
     mlflow.end_run()
