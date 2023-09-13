@@ -124,7 +124,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             temp_from_val = metrics_dict_val['temp']
             metrics_dicts = []
             for i in range(n_test):
-                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, qhats=qhats_from_val, temp=1)
+                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, qhats=qhats_from_val, temp=temp_from_val)
                 metrics_dicts.append(metrics_dict)
             
             mlflow_dict, all_value_dicts = get_ml_flow_dict(metrics_dicts)

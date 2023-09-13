@@ -38,8 +38,7 @@ parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning ra
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.01,type=float,help='cost inference and cross entropy loss tradeoff')
-parser.add_argument('--G', default=7, type=int, help='number of gates')
-parser.add_argument('--num_epoch', default=5, type=int, help='num of epochs')
+parser.add_argument('--num_epoch', default=15, type=int, help='num of epochs')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume', '-r',action='store_true',help='resume from checkpoint')
@@ -86,7 +85,7 @@ if args.use_mlflow:
     if args.barely_train:
         setup_mlflow(name, cfg, experiment_name='test run')
     else:
-        experiment_name = 'check_bal'
+        experiment_name = 'bigger_runs'
         setup_mlflow(name, cfg, experiment_name=experiment_name)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
