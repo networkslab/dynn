@@ -142,7 +142,7 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             #     for item in v:
             #         fout.write(f'{item}%\n')
             # fout.write('**************************\n')
-    with open(args.arch+'_'+args.dataset+'_resultss.pk', 'wb') as file:
+    with open(args.arch+'_'+args.dataset+'_results.pk', 'wb') as file:
         pk.dump(all_value_dicts_per_T, file)
         
 
