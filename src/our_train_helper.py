@@ -55,7 +55,9 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
         helper.optimizer.step()
         
         # obtain the metrics associated with the batch
-        metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 
+        metrics_of_batch = process_things(things_of_interest, gates_count=args.G,
+                                          targets=targets, batch_size=batch_size,
+                                          cost_per_exit=helper.net.module.normalized_cost_per_exit)
         metrics_of_batch['loss'] = (loss.item(), batch_size)
         
         # keep track of the average metrics
@@ -103,7 +105,9 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
             loss, things_of_interest = helper.get_surrogate_loss(inputs, targets)
             
             # obtain the metrics associated with the batch
-            metrics_of_batch = process_things(things_of_interest, gates_count=args.G, targets=targets, batch_size=batch_size) 
+            metrics_of_batch = process_things(things_of_interest, gates_count=args.G,
+                                              targets=targets, batch_size=batch_size,
+                                              cost_per_exit=helper.net.module.mult_add_at_exits)
             metrics_of_batch['loss'] = (loss.item(), batch_size)
             
 

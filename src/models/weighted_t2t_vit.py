@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from models.t2t_vit import T2T_ViT
+from .custom_modules.identity_gate import IdentityGate
 
 # Weighted model
 class WeightedT2tVit(T2T_ViT):
@@ -14,6 +15,8 @@ class WeightedT2tVit(T2T_ViT):
     # Adds intermediate classifiers to take the output of the attention blocks
     def set_intermediate_heads(self, intermediate_head_positions):
         super().set_intermediate_heads(intermediate_head_positions)
+        self.gates = nn.ModuleList([ # added for flops computation
+            IdentityGate() for _ in range(len(intermediate_head_positions))])
 
     def forward(self, x):
         x, intermediate_outs, _ = self.forward_features(x)
@@ -34,3 +37,6 @@ class WeightedT2tVit(T2T_ViT):
 
     def get_trainable_parameters(self):
         return list(filter(lambda p: p.requires_grad, list(self.parameters())))
+
+    def forward_for_inference(self, x):
+        super().forward_for_inference(x)
