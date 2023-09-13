@@ -72,7 +72,7 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
                                 step=batch_idx +
                                 (epoch * len(train_loader)))
         
-        display_progress_bar('train', training_phase, step=batch_idx, total=len(train_loader), log_dict=log_dict)
+      #  display_progress_bar('train', training_phase, step=batch_idx, total=len(train_loader), log_dict=log_dict)
         
         if args.barely_train:
             if batch_idx > 20:
@@ -114,7 +114,7 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
             log_dict = log_aggregate_metrics_mlflow(
                     prefix_logger=prefix_logger,
                     metrics_dict=metrics_dict, gates_count=args.G) 
-            display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
+           #display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
 
             if args.barely_train:
                     if batch_idx > 50:
@@ -157,15 +157,22 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     exit_count_optimal_gate = val_metrics_dict['exit_count_optimal_gate'] # ({0: 0, 1: 0, 2: 0, 3: 0, 4: 6, 5: 72}, 128)
     total = exit_count_optimal_gate[1]
     pos_weights = []
-    
+    pos_weights_previous = []
     for gate, count in exit_count_optimal_gate[0].items():
         count = max(count, 0.1)
-        pos_weight = total / count
+        pos_weight = (total-count) / count # #0/#1
+        pos_weight_previous = total / count
         pos_weight = min(pos_weight, 5)
+        pos_weight_previous = min(pos_weight_previous, 5)
+        # pos_weight = max(pos_weight, 0.02)
+        # pos_weight_previous = max(pos_weight_previous, 0.02)
         pos_weights.append(pos_weight)
-        
-    
+        pos_weights_previous.append(pos_weight_previous)
+
+    print(pos_weights_previous)
+    print(pos_weights)
     learning_helper.gate_training_helper.set_ratios(pos_weights)
+    
     
 
     ## compute the quantiles for the conformal intervals

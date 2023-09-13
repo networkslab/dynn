@@ -5,6 +5,7 @@ from enum import Enum
 class GateSelectionMode(Enum):
     PROBABILISTIC = 'prob'
     DETERMINISTIC = 'det'
+    FRACTION = 'frac'
 
 class LossContributionMode(Enum):
     SINGLE = 'single' # a sample contributes to the loss at a single classifier
@@ -15,10 +16,12 @@ class InvalidLossContributionModeException(Exception):
     pass
 
 class ClassifierTrainingHelper:
-    def __init__(self, net: nn.Module, gate_selection_mode: GateSelectionMode, loss_contribution_mode: LossContributionMode) -> None:
+    def __init__(self, net: nn.Module, gate_selection_mode: GateSelectionMode, loss_contribution_mode: LossContributionMode,G: int, device) -> None:
         self.net = net
+        self.device = device
         self.gate_selection_mode = gate_selection_mode
         self.loss_contribution_mode = loss_contribution_mode
+        self.set_fractions([1/G for _ in range(G)])
         self.alpha_qhat_dict = None
         # boosted loss behaves as weighted
         if self.loss_contribution_mode == LossContributionMode.BOOSTED: 
@@ -32,6 +35,9 @@ class ClassifierTrainingHelper:
     def set_conf_thresholds(self, alpha_qhat_dict):
         self.alpha_qhat_dict = alpha_qhat_dict
    
+    def set_fractions(self, fractions):
+        self.fractions = torch.Tensor(fractions).to(self.device)
+
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor, compute_hamming = False):
         intermediate_logits = [] # logits from the intermediate classifiers
         num_exits_per_gate = []
@@ -73,6 +79,11 @@ class ClassifierTrainingHelper:
                 do_exit = torch.bernoulli(current_gate_activation_prob)
             elif self.gate_selection_mode == GateSelectionMode.DETERMINISTIC:
                 do_exit = current_gate_activation_prob >= 0.5
+            elif self.gate_selection_mode == GateSelectionMode.FRACTION:
+                cut_off = torch.quantile(current_gate_activation_prob, q=1-self.fractions[l]) 
+                do_exit = current_gate_activation_prob >= cut_off
+                
+                
             current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
             current_exit_index = current_exit.flatten().nonzero()
             sample_exit_level_map[current_exit_index] = l
