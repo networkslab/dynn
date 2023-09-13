@@ -7,6 +7,8 @@ import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import pickle as pk
 from timm.models import *
+from thop import profile
+from models.op_counter import measure_model_and_assign_cost_per_exit
 from timm.models import create_model
 from boosted_training_helper import test_boosted, train_boosted
 from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
@@ -86,7 +88,7 @@ if args.use_mlflow:
     if args.barely_train:
         setup_mlflow(name, cfg, experiment_name='test run')
     else:
-        setup_mlflow(name, cfg, experiment_name='weighted')
+        setup_mlflow(name, cfg, experiment_name='actual_flops')
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 best_acc = 0  # best test accuracy
@@ -138,6 +140,8 @@ if not isinstance(net, Boosted_T2T_ViT) and not 'weighted' in args.arch:
                             proj_dim=int(args.proj_dim),
                             num_proj=int(args.num_proj))
 
+
+n_flops, n_params, n_flops_at_gates = measure_model_and_assign_cost_per_exit(net, IMG_SIZE, IMG_SIZE, num_classes=NUM_CLASSES)
 net = net.to(device)
 
 if device == 'cuda':

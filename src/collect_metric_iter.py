@@ -82,7 +82,7 @@ def aggregate_metrics(metrics_to_aggregate_dict, metrics_dict, gates_count):
             metrics_dict[metric_key] = (aggregated_metric, total)
     return metrics_dict
 
-def process_things(things_of_interest, gates_count, targets, batch_size):
+def process_things(things_of_interest, gates_count, targets, batch_size, cost_per_exit):
     """
     This function transforms the model outputs to various metrics. The metrics have the format (count, batch_size) to be aggregated later with other metrics.
     """
@@ -190,7 +190,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size):
         num_exits_per_gate = things_of_interest['num_exits_per_gate']
         gated_y_logits = things_of_interest['gated_y_logits']
         _, predicted = gated_y_logits.max(1)
-        total_cost = compute_cost(num_exits_per_gate, gates_count)
+        total_cost = compute_cost(num_exits_per_gate, cost_per_exit)
         metrics_to_aggregate_dict['total_cost'] = (total_cost*100.0, batch_size)
     if 'sample_exit_level_map' in things_of_interest:
 
@@ -236,16 +236,16 @@ def compute_correct_number_per_gate(number_of_gates: int,
         result_map[gate_idx] = (correct_pred_count, pred_count)
     return result_map
 
-def compute_cost(num_exits_per_gate, G):
+def compute_cost(num_exits_per_gate, cost_per_exit):
     cost_per_gate = [
-        free(num) * (g + 1) / (G+1)
+        free(num) * cost_per_exit[g]
         for g, num in enumerate(num_exits_per_gate)
     ]
     # the last cost_per gate should be equal to the last num
-    return  np.sum(cost_per_gate)
+    return np.sum(cost_per_gate)
 
 def evaluate_with_fixed_gating(thresholds, outputs_logits, intermediate_outputs,
-                         targets, stored_metrics, thresh_type):
+                         targets, stored_metrics, thresh_type, normalized_cost_per_exit):
     G = len(thresholds)
     
     points_reminding = list(range(targets.shape[0]))  # index of all points to classify
@@ -269,10 +269,10 @@ def evaluate_with_fixed_gating(thresholds, outputs_logits, intermediate_outputs,
             # we add the point to be classified by that gate
             gated_outputs[actual_early_exit_ind, :] = intermediate_outputs[g][
                 actual_early_exit_ind, :]
-    #classify the reminding points with the end layer
+    #classify the remaining points with the end layer
     gated_outputs[points_reminding, :] = outputs_logits[points_reminding, :]
     num_classifiction_per_gates.append(points_reminding)
-    total_cost = compute_cost(num_classifiction_per_gates, G)
+    total_cost = compute_cost(num_classifiction_per_gates, normalized_cost_per_exit)
     _, gated_pred = gated_outputs.max(1)
     gated_correct = gated_pred.eq(targets).sum().item()
     stored_metrics['gated_correct'] += gated_correct

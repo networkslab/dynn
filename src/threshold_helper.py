@@ -24,10 +24,7 @@ def fixed_threshold_test(args, helper: LearningHelper, device, test_loader, val_
     val_pred, val_target = aggregate_logits_targets(val_loader, helper, device)
     test_pred, test_target = aggregate_logits_targets(test_loader, helper, device)
 
-    COST_PER_LAYER = 1.0/7 * 100
-    costs_at_exit = [COST_PER_LAYER * (i + 1) for i in range(7)]
-
-    
+    costs_at_exit = helper.net.module.normalized_cost_per_exit
 
     costs = []
     accs = []
