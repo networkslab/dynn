@@ -38,7 +38,7 @@ parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning ra
 parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.01,type=float,help='cost inference and cross entropy loss tradeoff')
-parser.add_argument('--num_epoch', default=15, type=int, help='num of epochs')
+parser.add_argument('--num_epoch', default=1, type=int, help='num of epochs')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume', '-r',action='store_true',help='resume from checkpoint')
@@ -211,7 +211,7 @@ else:
         set_from_validation(learning_helper, val_metrics_dict)
         #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader) # this can make gpu run OOM
         scheduler.step()
-with open(experiment_name+'_'+args.dataset+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
-    pk.dump(log_dict, file)
+    with open(experiment_name+'_'+args.dataset+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
+        pk.dump(log_dict, file)
 
 mlflow.end_run()
