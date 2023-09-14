@@ -398,7 +398,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted'], default='t2t_vit_14_weighted', help='model')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted', 't2t_vit_14_weighted'], default='t2t_vit_14_weighted', help='model')
     parser.add_argument('--dataset', type=str, default='cifar100', help='dataset')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
