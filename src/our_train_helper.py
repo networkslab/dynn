@@ -6,7 +6,7 @@ import mlflow
 from timm.models import *
 from timm.models import create_model
 from collect_metric_iter import aggregate_metrics, process_things
-from data_loading.data_loader_helper import split_dataloader_in_n
+from data_loading.data_loader_helper import get_path_to_project_root, split_dataloader_in_n
 from learning_helper import LearningHelper
 from log_helper import log_aggregate_metrics_mlflow
 from utils import  aggregate_dicts, progress_bar
@@ -141,11 +141,13 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
             'acc': gated_acc,
             'epoch': epoch,
         }
-        if not os.path.isdir(f'checkpoint_{args.dataset}_{args.arch}'):
-            os.mkdir(f'checkpoint_{args.dataset}_{args.arch}')
+        checkpoint_path = os.path.join(get_path_to_project_root(), 'checkpoint')
+        this_run_checkpoint_path = os.path.join(checkpoint_path, f'checkpoint_{args.dataset}_{args.arch}_confEE')
+        if not os.path.isdir(this_run_checkpoint_path):
+            os.mkdir(this_run_checkpoint_path)
         torch.save(
             state,
-            f'./checkpoint_{args.dataset}_{args.arch}/ckpt_{args.lr}_{args.wd}_{gated_acc}.pth'
+            os.path.join(this_run_checkpoint_path,f'ckpt_{args.ce_ic_tradeoff}_{gated_acc}.pth')
         )
         best_acc = gated_acc
     if args.use_mlflow:
@@ -165,16 +167,11 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     for gate, count in exit_count_optimal_gate[0].items():
         count = max(count, 0.1)
         pos_weight = (total-count) / count # #0/#1
-        pos_weight_previous = total / count
-        pos_weight = min(pos_weight, 5)
-        pos_weight_previous = min(pos_weight_previous, 5)
-        # pos_weight = max(pos_weight, 0.02)
-        # pos_weight_previous = max(pos_weight_previous, 0.02)
+        pos_weight = min(pos_weight, 5) # clip for stability
         pos_weights.append(pos_weight)
-        pos_weights_previous.append(pos_weight_previous)
 
-    print(pos_weights_previous)
-    print(pos_weights)
+
+
     learning_helper.gate_training_helper.set_ratios(pos_weights)
     
     
