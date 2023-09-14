@@ -65,14 +65,14 @@ def aggregate_metrics(metrics_to_aggregate_dict, metrics_dict, gates_count):
             batch_size = metric_total_tuple[1]
             total = metrics_dict[metric_key][1] + batch_size
             if type(metric) is list:
-                if len(metric) == gates_count and 'per_gate' in metric_key: # we maintain 
+                if (len(metric) == gates_count or len(metric) == gates_count+1)  and 'per_gate' in metric_key: # we maintain 
                     aggregated_metric= []
                     for g, per_gate_metric in enumerate(metric):
                         aggregated_metric.append(metrics_dict[metric_key][0][g] + per_gate_metric)
                 else: # we just concat
                     aggregated_metric = metrics_dict[metric_key][0] + metric
             elif type(metric) is dict:
-                if len(metric) == gates_count and 'gate' in metric_key: # we maintain 
+                if (len(metric) == gates_count or len(metric) == gates_count+1)  and 'gate' in metric_key: # we maintain 
                     aggregated_metric= {k: metric.get(k, 0) + metrics_dict[metric_key][0].get(k, 0) for k in set(metric) | set(metrics_dict[metric_key][0])}
                     
                 else: # we just concat
@@ -91,7 +91,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
     if  'final_logits' in    things_of_interest: 
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
-        metrics_to_aggregate_dict['correct_'+str(gates_count)] = (pred_final_head.eq(targets).sum().item(), batch_size)
+        metrics_to_aggregate_dict['correct'+str(gates_count)] = (pred_final_head.eq(targets).sum().item(), batch_size)
 
         # uncertainty related stats to be aggregated
         p_max, entropy, average_ece, margins, entropy_pow = compute_detached_uncertainty_metrics(final_y_logits, targets)

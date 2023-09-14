@@ -141,11 +141,11 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
             'acc': gated_acc,
             'epoch': epoch,
         }
-        if not os.path.isdir(f'checkpoint_{args.dataset}_{args.model}'):
-            os.mkdir(f'checkpoint_{args.dataset}_{args.model}')
+        if not os.path.isdir(f'checkpoint_{args.dataset}_{args.arch}'):
+            os.mkdir(f'checkpoint_{args.dataset}_{args.arch}')
         torch.save(
             state,
-            f'./checkpoint_{args.dataset}_{args.model}/ckpt_{args.lr}_{args.wd}_{gated_acc}.pth'
+            f'./checkpoint_{args.dataset}_{args.arch}/ckpt_{args.lr}_{args.wd}_{gated_acc}.pth'
         )
         best_acc = gated_acc
     if args.use_mlflow:
