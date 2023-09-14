@@ -386,7 +386,7 @@ def main(args):
      # LOAD MODEL
     checkpoint_path = get_latest_checkpoint_path(checkpoint_dir)
 
-    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE)
+    net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE, G)
     measure_model_and_assign_cost_per_exit(net.module, IMG_SIZE, IMG_SIZE, NUM_CLASSES)
 
     net = net.to(device)

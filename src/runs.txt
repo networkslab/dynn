@@ -6,12 +6,16 @@ python train_dynn.py --ce_ic_tradeoff 0 --dataset cifar10 --arch t2t_vit_7 --num
 python train_dynn.py --ce_ic_tradeoff 0.05 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 0.1 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 
+
+
+
 10.69.9.15
 python train_dynn.py --ce_ic_tradeoff 5 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 2 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 1.5 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 10 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
+
 
 10.121.170.0
 python train_dynn.py --dataset cifar10 --arch t2t_vit_7_boosted --num_epoch 10;
@@ -40,3 +44,9 @@ python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar100 --arch t2t_vit_14 --n
 python train_dynn.py --ce_ic_tradeoff 1.5 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
 python train_dynn.py --ce_ic_tradeoff 10 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
 
+scp floregol@10.69.9.15:/home/floregol/git/dynn/src/bigger*.pk .
+scp floregol@10.69.9.139:/home/floregol/git/dynn/src/bigger*.pk .
+scp floregol@10.121.170.0:/home/floregol/git/dynn/src/bigger*.pk .
+scp floregol@10.122.85.237:/home/floregol/git/dynn/src/bigger*.pk .
+scp floregol@10.69.9.93:/home/floregol/git/dynn/src/bigger*.pk .
+scp floregol@10.69.9.182:/home/floregol/git/dynn/src/bigger*.pk .
