@@ -1,3 +1,4 @@
+10.69.9.139
 python train_dynn.py --ce_ic_tradeoff 0.01 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 0.5 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 0.15 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
@@ -5,27 +6,37 @@ python train_dynn.py --ce_ic_tradeoff 0 --dataset cifar10 --arch t2t_vit_7 --num
 python train_dynn.py --ce_ic_tradeoff 0.05 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 0.1 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 
+10.69.9.15
 python train_dynn.py --ce_ic_tradeoff 5 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 2 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 1.5 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 python train_dynn.py --ce_ic_tradeoff 10 --dataset cifar10 --arch t2t_vit_7 --num_epoch 10;
 
+10.121.170.0
 python train_dynn.py --dataset cifar10 --arch t2t_vit_7_boosted --num_epoch 10;
+python boosted_adaptive_inference.py --dataset cifar10 --arch t2t_vit_7_boosted;
+python train_dynn.py --dataset cifar100 --arch t2t_vit_14_boosted --num_epoch 30;
+python boosted_adaptive_inference.py --dataset cifar100 --arch t2t_vit_14_boosted;
+
+10.122.85.237
 python train_dynn.py --dataset cifar10 --arch t2t_vit_7_weighted --num_epoch 10;
+python boosted_adaptive_inference.py --dataset cifar10 --arch t2t_vit_7_weighted;
+python train_dynn.py --dataset cifar100 --arch t2t_vit_14_weighted --num_epoch 30;
+python boosted_adaptive_inference.py --dataset cifar100 --arch t2t_vit_14_weighted;
 
-python train_dynn.py --ce_ic_tradeoff 0.01 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 0.5 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 0.15 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 0 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 0.05 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 0.1 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
+10.69.9.93
+python train_dynn.py --ce_ic_tradeoff 0.01 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 0.5 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 0.15 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 0 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 0.05 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 0.1 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
 
-python train_dynn.py --ce_ic_tradeoff 5 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 2 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 1.5 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 10 --dataset cifar10 --arch t2t_vit_14 --num_epoch 30;
+10.69.9.182
+python train_dynn.py --ce_ic_tradeoff 5 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 2 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 1.5 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 10 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
 
-python train_dynn.py --dataset cifar10 --arch t2t_vit_14_boosted --num_epoch 30;
-python train_dynn.py --dataset cifar10 --arch t2t_vit_14_weighted --num_epoch 30;
