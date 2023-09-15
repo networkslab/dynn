@@ -11,7 +11,7 @@ from thop import profile
 from models.op_counter import measure_model_and_assign_cost_per_exit
 from timm.models import create_model
 from boosted_training_helper import test_boosted, train_boosted
-from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders
+from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders, get_svhn_dataloaders
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 from log_helper import setup_mlflow
 from models.classifier_training_helper import LossContributionMode
@@ -37,7 +37,7 @@ parser.add_argument('--arch', type=str,
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
-parser.add_argument('--dataset',type=str,default='cifar10',help='cifar10 or cifar100')
+parser.add_argument('--dataset',type=str,default='cifar10', choices=['cifar10', 'cifar100', 'svhn'])
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.1,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--G', default=7, type=int, help='number of gates')
@@ -111,6 +111,14 @@ elif args.dataset=='cifar100':
     train_loader, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                         map_location=torch.device(device))
+
+elif args.dataset=='svhn':
+    NUM_CLASSES = 10
+    IMG_SIZE = 32
+    args.G = 6
+    train_loader, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch, val_size=5000)
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
+                            map_location=torch.device(device))
 transformer_layer_gating = [g for g in range(args.G)]
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
