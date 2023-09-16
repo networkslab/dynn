@@ -16,17 +16,18 @@ import torchvision
 import torchvision.transforms as transforms
 from timm.models import *
 from timm.models import create_model
-from data_loading.data_loader_helper import get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_abs_path
+from data_loading.data_loader_helper import get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_svhn_dataloaders, get_abs_path
 from utils import load_for_transfer_learning
 from utils import progress_bar
 from log_helper import setup_mlflow
 from models import *
+from models.register_models import *
 parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr', default=2e-4, type=float, help='minimal learning rate')
 parser.add_argument('--dataset', type=str, default='cifar10',
-                    help='cifar10 or cifar100')
+                    help='cifar10 or cifar100 or svhn')
 parser.add_argument('--batch', type=int, default=64,
                     help='batch size')
 parser.add_argument('--resume', '-r', action='store_true',
@@ -43,7 +44,7 @@ use_mlflow = args.use_mlflow
 if use_mlflow:
     name = "_".join([str(a) for a in [args.dataset, args.batch]])
     cfg = vars(args)
-    setup_mlflow(name, cfg)
+    setup_mlflow(name, cfg, "svhn")
 path_project = get_path_to_project_root()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 # device = 'cuda'
@@ -70,6 +71,15 @@ elif args.dataset=='cifar100':
     if args.resume:
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cirfar100_t2t-vit-14_88.4.pth'))
     MODEL = 't2t_vit_14'
+elif args.dataset=='svhn':
+    NUM_CLASSES = 10
+    img_size = 32
+    train_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch)
+
+    pretrained_model_weights = os.path.join(path_project,"model_weights/71.7_T2T_ViT_7.pth.tar")
+    # if args.resume:
+    #     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cirfar100_t2t-vit-14_88.4.pth'))
+    MODEL = 't2t_vit_7'
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
