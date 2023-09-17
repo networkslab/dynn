@@ -466,8 +466,8 @@ def calc_target_probs(num_exits):
     return probs_list
 
 def deep_copy_model(model, args):
-    NUM_CLASSES = 10 if args.dataset == 'cifar10' else 100
-    IMG_SIZE = 224
+    NUM_CLASSES = 10 if args.dataset == 'cifar10' or args.dataset == 'svhn' else 100
+    IMG_SIZE = 224 if 'cifar' in args.dataset else 32
     model_name = args.arch
     pseudo_net = create_model(model_name, # TODO configure this to accept the architecture (boosted vs others etc...)
                               pretrained=False,
