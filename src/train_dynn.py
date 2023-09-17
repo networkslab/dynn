@@ -214,16 +214,16 @@ else:
     best_acc = 0
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
-    
-    train_single_epoch(args, learning_helper, device, train_loader, epoch=0, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
-    start_epoch = 1
+    num_warmup_epoch = 1
     if args.dataset == 'svhn':
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=1, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
-        start_epoch = 2
-    val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=0, mode='val', experiment_name=experiment_name)
-    set_from_validation(learning_helper, val_metrics_dict)
-    evaluate(best_acc, args, learning_helper, device, test_loader, epoch=0, mode='test', experiment_name=experiment_name)
-    for epoch in range(start_epoch, args.num_epoch):
+        num_warmup_epoch = 4
+    for epoch in range(num_warmup_epoch):
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
+        val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=epoch, mode='val', experiment_name=experiment_name)
+        #set_from_validation(learning_helper, val_metrics_dict)
+        evaluate(best_acc, args, learning_helper, device, test_loader, epoch=epoch, mode='test', experiment_name=experiment_name)
+    
+    for epoch in range(num_warmup_epoch, args.num_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
         
         val_metrics_dict, new_best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, mode='val', experiment_name=experiment_name)
