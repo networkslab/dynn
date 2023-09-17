@@ -384,7 +384,12 @@ def main(args):
         NUM_CLASSES = 10
         IMG_SIZE = 32
         G = 6
-        checkpoint_dir = "checkpoint_svhn_t2t_vit_7_boosted"
+        if 'weighted' in args.arch:
+            checkpoint_dir = "checkpoint_svhn_t2t_vit_7_weighted"
+        else:
+            checkpoint_dir = "checkpoint_svhn_t2t_vit_7_boosted"
+
+        
         _, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=64, val_size=5000)
     else:
         raise 'Unsupported dataset'
