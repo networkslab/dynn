@@ -167,7 +167,21 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
             cov = free(torch.sum(in_gated_conf))
             metrics_to_aggregate_dict['C_'+str(alpha)] = (C, batch_size)
             metrics_to_aggregate_dict['cov_'+str(alpha)] = (cov, batch_size)
-
+    if 'prediction_sets_per_gate' in things_of_interest:
+        prediction_sets_per_gate_dict = things_of_interest['prediction_sets_per_gate']
+        for alpha, prediction_sets_per_gate in prediction_sets_per_gate_dict.items():
+            C_per_gate = np.array([np.sum(free(pre),axis=1) for pre in prediction_sets_per_gate])
+            tighter_intervals = np.argmin(C_per_gate, axis=0)
+            intervals = np.array([free(pre) for pre in prediction_sets_per_gate])
+            tight_prediction_sets = []
+            for i, tighter_interval in enumerate(tighter_intervals):
+                tight_prediction_sets.append(intervals[tighter_interval, i])
+            tight_prediction_sets = np.array(tight_prediction_sets)
+            C = np.sum(tight_prediction_sets)
+            in_gated_conf = tight_prediction_sets[np.arange(batch_size),free(targets)]
+            cov = np.sum(in_gated_conf)
+            metrics_to_aggregate_dict['tight_C_'+str(alpha)] = (C, batch_size)
+            metrics_to_aggregate_dict['tight_cov_'+str(alpha)] = (cov, batch_size)
     if 'general_prediction_sets' in things_of_interest:
         general_prediction_sets_dict = things_of_interest['general_prediction_sets']
         for alpha, general_prediction_sets in general_prediction_sets_dict.items():
