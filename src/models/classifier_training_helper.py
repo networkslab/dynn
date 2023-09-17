@@ -149,9 +149,14 @@ class ClassifierTrainingHelper:
             things_of_interest['gated_prediction_sets'] = {}
             for alpha, dict_qhats in self.alpha_qhat_dict.items():
                 gated_prediction_sets = torch.zeros_like(all_logits[0]).bool()
+                smaller_prediction_sets = torch.zeros_like(all_logits[0]).bool() + all_logits[0].shape[1]
                 for l, conf_thresh  in enumerate(dict_qhats['qhats']):
                     prob_at_l = torch.nn.functional.softmax(all_logits[l], dim=1)
                     exited_prob_at_l = prob_at_l[sample_exit_level_map == l]
                     gated_prediction_sets[sample_exit_level_map == l] = exited_prob_at_l >= (1-conf_thresh)
+                    
+                    # accessible_gates = sample_exit_level_map >= l
+                    # accessible_prob_at_l = prob_at_l[accessible_gates]
+                    # smaller_prediction_sets[accessible_gates] = torch.min(smaller_prediction_sets, accessible_prob_at_l>= (1-conf_thresh))
                 things_of_interest['gated_prediction_sets'][alpha] = gated_prediction_sets
         return things_of_interest
