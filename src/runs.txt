@@ -21,6 +21,10 @@ ssh floregol@10.121.170.0
 python train_dynn.py --dataset svhn --arch t2t_vit_7_weighted --num_epoch 10;
 python boosted_adaptive_inference.py --dataset svhn --arch t2t_vit_7_weighted;
 
+python train_dynn.py --dataset svhn --arch t2t_vit_7_boosted --num_epoch 10;
+python boosted_adaptive_inference.py --dataset svhn --arch t2t_vit_7_boosted;
+
+
 python train_dynn.py --dataset cifar10 --arch t2t_vit_7_boosted --num_epoch 10;
 python boosted_adaptive_inference.py --dataset cifar10 --arch t2t_vit_7_boosted;
 python train_dynn.py --dataset cifar100 --arch t2t_vit_14_boosted --num_epoch 30;
