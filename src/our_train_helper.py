@@ -14,7 +14,7 @@ from early_exit_utils import switch_training_phase
 from models.t2t_vit import TrainingPhase
 from plasticity_analysis.plasticity_metrics_utility import get_network_weight_norm_dict
 import numpy as np
-
+import pickle as pk
 def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
     loss = log_dict[prefix_logger+'/loss']
     if training_phase == TrainingPhase.WARMUP:
@@ -87,10 +87,10 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
 
 
 
-def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch, prefix_logger: str):
+def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch, mode: str, experiment_name: str, store_results=False):
     helper.net.eval()
     metrics_dict = {}
-    if prefix_logger == 'test': # we should split the data and combine at the end
+    if mode == 'test': # we should split the data and combine at the end
         loaders = split_dataloader_in_n(init_loader, n=10)
     else:
         loaders = [init_loader]
@@ -116,7 +116,7 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
             
             # format the metric ready to be displayed
             log_dict = log_aggregate_metrics_mlflow(
-                    prefix_logger=prefix_logger,
+                    prefix_logger=mode,
                     metrics_dict=metrics_dict, gates_count=args.G) 
            #display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
 
@@ -132,9 +132,11 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
     for k,v in log_dicts_of_trials.items():
         average_trials_log_dict[k] = np.mean(v)
     
-    gated_acc = average_trials_log_dict[prefix_logger+'/gated_acc']
+    gated_acc = average_trials_log_dict[mode+'/gated_acc']
+    average_trials_log_dict[mode+'/test_acc']= gated_acc
+    mlflow.log_metrics(average_trials_log_dict, step=epoch)
     # Save checkpoint.
-    if gated_acc > best_acc:
+    if gated_acc > best_acc and mode == 'val':
         print('Saving..')
         state = {
             'net': helper.net.state_dict(),
@@ -150,9 +152,12 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
             os.path.join(this_run_checkpoint_path,f'ckpt_{args.ce_ic_tradeoff}_{gated_acc}.pth')
         )
         best_acc = gated_acc
-    if args.use_mlflow:
-        average_trials_log_dict[prefix_logger+'/test_acc']= gated_acc
-        mlflow.log_metrics(average_trials_log_dict, step=epoch)
+        
+    
+    elif mode == 'test' and store_results:
+        print('storing results....')
+        with open(experiment_name+'_'+args.dataset+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
+            pk.dump(log_dicts_of_trials, file)
     return metrics_dict, best_acc, log_dicts_of_trials
 
 # Any action based on the validation set

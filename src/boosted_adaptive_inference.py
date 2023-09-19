@@ -13,7 +13,7 @@ import torch.backends.cudnn as cudnn
 import math
 import time
 from log_helper import setup_mlflow
-from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, split_dataloader_in_n
+from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_svhn_dataloaders, split_dataloader_in_n
 from timm.models import *
 from timm.models import create_model
 from models.op_counter import measure_model_and_assign_cost_per_exit
@@ -370,7 +370,7 @@ def main(args):
             checkpoint_dir = "checkpoint_cifar10_t2t_7_boosted"
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
         num_classes = 10
-        G = 7
+        G = 6
     elif args.dataset == 'cifar100':
         NUM_CLASSES = 100
         if 'weighted' in args.arch:
@@ -379,8 +379,18 @@ def main(args):
             checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_boosted"
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
         num_classes = 100
-        G = 14
+        G = 13
+    elif args.dataset=='svhn':
+        NUM_CLASSES = 10
+        IMG_SIZE = 32
+        G = 6
+        if 'weighted' in args.arch:
+            checkpoint_dir = "checkpoint_svhn_t2t_vit_7_weighted"
+        else:
+            checkpoint_dir = "checkpoint_svhn_t2t_vit_7_boosted"
 
+        
+        _, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=64, val_size=5000)
     else:
         raise 'Unsupported dataset'
      # LOAD MODEL
@@ -398,8 +408,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted', 't2t_vit_14_weighted'], default='t2t_vit_14_weighted', help='model')
-    parser.add_argument('--dataset', type=str, default='cifar100', help='dataset')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted', 't2t_vit_14_weighted'], default='t2t_vit_7_boosted', help='model')
+    parser.add_argument('--dataset', type=str, default='svhn', help='dataset')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
     parser.add_argument('--base', type=int, default=4)
