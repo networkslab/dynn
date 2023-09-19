@@ -101,7 +101,7 @@ if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
     args.G = 6
-    train_loader, val_loader, test_loader  = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, 
+    train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch,
                                                     test_batch_size=args.batch, val_size=5000)
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
@@ -182,12 +182,17 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
                                                        T_max=args.num_epoch)
 
 if isinstance(net.module, Boosted_T2T_ViT):
+    best_val_acc = 0
     for epoch in range(0, args.num_epoch):
         train_boosted(args, net, device, train_loader, optimizer, epoch)
-        accs = test_boosted(args, net, test_loader, epoch)
+        accs = test_boosted(args, net, val_loader, epoch)
+        val_acc_last_head = accs[-1]
+        if val_acc_last_head > best_val_acc:
+            print(f"Increase in validation accuracy to {val_acc_last_head} of last trainable head of boosted, serializing model")
+            best_val_acc = val_acc_last_head
+            save_dynn_checkpoint(net, f'checkpoint_{args.dataset}_{args.arch}', f'ckpt_ep{epoch}_acc{val_acc_last_head}.pth')
         # stored_metrics_test = test(epoch)
         scheduler.step()
-    save_dynn_checkpoint(net, f'checkpoint_{args.dataset}_{args.arch}', f'last_{accs[-1]}_second_to_last_{accs[-2]}.pth')
 
 elif 'baseline' in args.arch: # only training with warmup
     learning_helper = LearningHelper(net, optimizer, args, device)
@@ -209,7 +214,7 @@ elif 'weighted' in args.arch: # stupid python issue i don't wanna deal with now 
     if device == 'cuda':
         meta_net = torch.nn.DataParallel(meta_net)
     meta_optimizer = torch.optim.Adam(meta_net.parameters(), lr=args.meta_lr, weight_decay=args.meta_weight_decay)
-    train_weighted_net(train_loader, test_loader, net, meta_net, optimizer, meta_optimizer, args, with_serialization=True)
+    train_weighted_net(train_loader, val_loader, net, meta_net, optimizer, meta_optimizer, args, with_serialization=True)
 else:
     best_acc = 0
     # start with warm up for the first epoch
