@@ -185,15 +185,25 @@ class T2T_ViT(nn.Module):
         for param in classifier.parameters():
             param.requires_grad = False
 
+    def unfreeze_intermediate_classifier(self, classifier_idx):
+        classifier = self.intermediate_heads[classifier_idx]
+        for param in classifier.parameters():
+            param.requires_grad = True
+
+    def unfreeze_all_intermediate_classifiers(self):
+        for inter_head in self.intermediate_heads:
+            for param in inter_head.parameters():
+                param.requires_grad = True
     def set_cost_per_exit(self, mult_add_at_exits: list[float], scale = 1e6):
         normalized_cost = torch.tensor(mult_add_at_exits) / mult_add_at_exits[-1]
         self.mult_add_at_exits = (torch.tensor(mult_add_at_exits) / scale).tolist()
         self.normalized_cost_per_exit = normalized_cost.tolist()
 
     def are_all_classifiers_frozen(self):
-        for i in range(len(self.accuracy_trackers)):
-            if not self.accuracy_trackers[i].frozen:
-                return False
+        for inter_head in self.intermediate_heads:
+            for param in inter_head.parameters():
+                if param.requires_grad:
+                    return False
         return True
 
     def set_threshold_gates(self, gates):

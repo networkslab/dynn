@@ -12,6 +12,7 @@ class LossContributionMode(Enum):
     WEIGHTED = 'weighted'
     BOOSTED = 'boosted'
 
+
 class InvalidLossContributionModeException(Exception):
     pass
 

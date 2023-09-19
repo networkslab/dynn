@@ -16,7 +16,8 @@ class LearningHelper:
 
     def _init_classifier_training_helper(self, args, device) -> None:
         gate_selection_mode = args.gate_selection_mode
-        self.loss_contribution_mode = args.classifier_loss 
+        self.loss_contribution_mode = args.classifier_loss
+        self.early_exit_warmup = args.early_exit_warmup
         self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, self.loss_contribution_mode, args.G, device)
     
     def _init_gate_training_helper(self, args, device) -> None:
@@ -45,22 +46,23 @@ class LearningHelper:
         criterion = nn.CrossEntropyLoss()
         self.optimizer.zero_grad()
         final_logits, intermediate_logits, _ = self.net(inputs)
-        loss = criterion(final_logits,targets)  # the grad_fn of this loss should be None if frozen
-        
-        if self.loss_contribution_mode == LossContributionMode.BOOSTED: # our version of boosting is just training early classifier more
-            num_gates = len(intermediate_logits)+1
-            for l, intermediate_logit in enumerate(intermediate_logits):
-                intermediate_loss = criterion(intermediate_logit, targets)
-                loss += (num_gates - l)*intermediate_loss # we scale the gradient by G-l => early gates have bigger gradient
-               
-        else: # plain optimization of all the intermediate classifiers
-            for intermediate_logit in intermediate_logits:
-                intermediate_loss = criterion(intermediate_logit, targets)
-                loss += intermediate_loss
+        loss = criterion(final_logits, targets)  # the grad_fn of this loss should be None if frozen
+        intermediate_losses = []
+        # if self.loss_contribution_mode == LossContributionMode.BOOSTED: # our version of boosting is just training early classifier more
+        #     num_gates = len(intermediate_logits)+1
+        #     for l, intermediate_logit in enumerate(intermediate_logits):
+        #         intermediate_loss = criterion(intermediate_logit, targets)
+        #         intermediate_losses.append(intermediate_loss)
+        #         loss += (num_gates - l)*intermediate_loss # we scale the gradient by G-l => early gates have bigger gradient
+        # else: # plain optimization of all the intermediate classifiers
+        for intermediate_logit in intermediate_logits:
+            intermediate_loss = criterion(intermediate_logit, targets)
+            loss += intermediate_loss
+            intermediate_losses.append(intermediate_loss)
         things_of_interest = {
             'intermediate_logits': intermediate_logits,
             'final_logits': final_logits}
-        return loss, things_of_interest
+        return loss, things_of_interest, intermediate_losses
 
 def freeze_backbone(network, excluded_submodules: list[str]):
     model_parameters = filter(lambda p: p.requires_grad, network.parameters())

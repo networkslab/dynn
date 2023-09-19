@@ -1,5 +1,5 @@
 '''Train DYNN from checkpoint of trained backbone'''
-
+import itertools
 import os
 import torch
 import mlflow
@@ -9,6 +9,7 @@ from collect_metric_iter import aggregate_metrics, process_things
 from data_loading.data_loader_helper import get_path_to_project_root, split_dataloader_in_n
 from learning_helper import LearningHelper
 from log_helper import log_aggregate_metrics_mlflow
+from models.classifier_training_helper import LossContributionMode
 from utils import  aggregate_dicts, progress_bar
 from early_exit_utils import switch_training_phase
 from models.t2t_vit import TrainingPhase
@@ -28,19 +29,45 @@ def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
     elif training_phase == TrainingPhase.GATE:
         progress_bar(step, total, 'Gate Loss: %.3f ' % (loss)) 
 
-def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch, training_phase,
+def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_loader, epoch, training_phase,
           bilevel_batch_count=20):
     print('\nEpoch: %d' % epoch)
+    VAL_WARMUP_PATIENCE = 50
     helper.net.train()
-
+    lowest_val_losses = [9000 for _ in range(args.G)]
+    increase_val_loss_counter = [0 for _ in range(args.G)]
     metrics_dict = {}
-    for batch_idx, (inputs, targets) in enumerate(train_loader):
-        inputs, targets = inputs.to(device), targets.to(device)
-        batch_size = targets.size(0)
+    for batch_idx, (train_samples, val_samples) in enumerate(zip(train_loader, itertools.cycle(val_loader))):
+        train_inputs = train_samples[0]
+        train_targets = train_samples[1]
+        train_inputs, train_targets = train_inputs.to(device), train_targets.to(device)
+        batch_size = train_targets.size(0)
        
         if training_phase == TrainingPhase.WARMUP:
             #  we compute the warmup loss
-            loss, things_of_interest = helper.get_warmup_loss(inputs, targets)
+            loss, things_of_interest, _ = helper.get_warmup_loss(train_inputs, train_targets)
+            if helper.early_exit_warmup:
+                val_inputs = val_samples[0]
+                val_targets = val_samples[1]
+                val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
+                val_loss, _, intermediate_losses = helper.get_warmup_loss(val_inputs, val_targets)
+                intermediate_losses = list(map(lambda l: l.item(), intermediate_losses))
+                for classifier_idx, l in enumerate(intermediate_losses):
+                    if increase_val_loss_counter[classifier_idx] == -1: # classifier already frozen
+                        continue
+                    lowest_val_loss = lowest_val_losses[classifier_idx]
+                    if l < lowest_val_loss:
+                        lowest_val_losses[classifier_idx] = l
+                        increase_val_loss_counter[classifier_idx] = 0 # reset counter.
+                    else:
+                        increase_val_loss_counter[classifier_idx] += 1
+                        if increase_val_loss_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
+                            print(f"FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
+                            helper.net.module.freeze_intermediate_classifier(classifier_idx)
+                            increase_val_loss_counter[classifier_idx] = -1 # denotes frozen
+                if helper.net.module.are_all_classifiers_frozen():
+                    print("All classifiers are frozen in warmup, exiting")
+                    break
         else:
             if batch_idx % bilevel_batch_count == 0:
                 if helper.net.module.are_all_classifiers_frozen(): # no need to train classifiers anymore
@@ -49,14 +76,14 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
                 else:
                     metrics_dict = {}
                     training_phase = switch_training_phase(training_phase)
-            loss, things_of_interest = helper.get_surrogate_loss(inputs, targets, training_phase)
+            loss, things_of_interest = helper.get_surrogate_loss(train_inputs, train_targets, training_phase)
         weight_norm_metrics = get_network_weight_norm_dict(helper.net.module)
         loss.backward()
         helper.optimizer.step()
         
         # obtain the metrics associated with the batch
         metrics_of_batch = process_things(things_of_interest, gates_count=args.G,
-                                          targets=targets, batch_size=batch_size,
+                                          targets=train_targets, batch_size=batch_size,
                                           cost_per_exit=helper.net.module.normalized_cost_per_exit)
         metrics_of_batch['loss'] = (loss.item(), batch_size)
         
@@ -220,4 +247,4 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     #             print(f"FREEZING CLASSIFIER {idx}")
     #         else:
     #             accuracy_tracker.insert_acc(classifier_accuracy)
-        
+

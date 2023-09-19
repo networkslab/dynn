@@ -55,6 +55,7 @@ parser.add_argument('--proj_dim',default=32,help='Target dimension of random pro
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True, help='Store the run with mlflow')
 parser.add_argument('--classifier_loss', type=LossContributionMode, default=LossContributionMode.BOOSTED, choices=LossContributionMode)
+parser.add_argument('--early_exit_warmup', default=True)
 # WEIGHTED BASELINE SPECIFIC ARGUMENTS
 parser.add_argument('--meta_net_hidden_size',default=500, help='Width of the hidden size of the weight prediction network')
 parser.add_argument('--meta_net_num_layers',default=1, help='Number of layers of wpn')
@@ -219,17 +220,24 @@ else:
     best_acc = 0
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
-    num_warmup_epoch = 1
+    max_warmup_epoch = args.num_epoch // 2
     if args.dataset == 'svhn':
-        num_warmup_epoch = 5
-    for epoch in range(num_warmup_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
-        val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=epoch, mode='val', experiment_name=experiment_name)
+        max_warmup_epoch = 5
+    for warmup_epoch in range(max_warmup_epoch):
+        train_single_epoch(args, learning_helper, device,
+                           train_loader, val_loader, epoch=warmup_epoch, training_phase=TrainingPhase.WARMUP,
+                           bilevel_batch_count=args.bilevel_batch_count)
+        val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=warmup_epoch, mode='val', experiment_name=experiment_name)
         #set_from_validation(learning_helper, val_metrics_dict)
-        evaluate(best_acc, args, learning_helper, device, test_loader, epoch=epoch, mode='test', experiment_name=experiment_name)
-    
-    for epoch in range(num_warmup_epoch, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
+        evaluate(best_acc, args, learning_helper, device, test_loader, epoch=warmup_epoch, mode='test', experiment_name=experiment_name)
+        if net.module.are_all_classifiers_frozen():
+            print(f"Stopping warmup after {warmup_epoch} epochs")
+            break
+    # Unfreeze all classifiers after warmup
+    print("Unfreezing classifiers after warmup")
+    net.module.unfreeze_all_intermediate_classifiers()
+    for epoch in range(warmup_epoch + 1, args.num_epoch):
+        train_single_epoch(args, learning_helper, device, train_loader, val_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
         
         val_metrics_dict, new_best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, mode='val', experiment_name=experiment_name)
         if new_best_acc > best_acc: 
