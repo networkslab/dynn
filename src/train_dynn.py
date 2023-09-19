@@ -236,7 +236,7 @@ else:
     # Unfreeze all classifiers after warmup
     print("Unfreezing classifiers after warmup")
     net.module.unfreeze_all_intermediate_classifiers()
-    for epoch in range(warmup_epoch, args.num_epoch):
+    for epoch in range(warmup_epoch + 1, args.num_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, val_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
         
         val_metrics_dict, new_best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, mode='val', experiment_name=experiment_name)
