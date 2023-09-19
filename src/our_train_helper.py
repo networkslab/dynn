@@ -53,7 +53,7 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_l
                 val_loss, _, intermediate_losses = helper.get_warmup_loss(val_inputs, val_targets)
                 intermediate_losses = list(map(lambda l: l.item(), intermediate_losses))
                 for classifier_idx, l in enumerate(intermediate_losses):
-                    if increase_val_loss_counter[classifier_idx] == -1: # classifier already frozen
+                    if helper.net.module.is_classifier_frozen(classifier_idx): # classifier already frozen
                         continue
                     lowest_val_loss = lowest_val_losses[classifier_idx]
                     if l < lowest_val_loss:
@@ -64,7 +64,6 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_l
                         if increase_val_loss_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
                             print(f"FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
                             helper.net.module.freeze_intermediate_classifier(classifier_idx)
-                            increase_val_loss_counter[classifier_idx] = -1 # denotes frozen
                 if helper.net.module.are_all_classifiers_frozen():
                     print("All classifiers are frozen in warmup, exiting")
                     break

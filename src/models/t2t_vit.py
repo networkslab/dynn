@@ -206,6 +206,13 @@ class T2T_ViT(nn.Module):
                     return False
         return True
 
+    def is_classifier_frozen(self, classifier_idx):
+        inter_head = self.intermediate_heads[classifier_idx]
+        for param in inter_head.parameters():
+            if param.requires_grad:
+                return False
+        return True
+
     def set_threshold_gates(self, gates):
         assert len(gates) == len(self.intermediate_heads), 'Net should have as many gates as there are intermediate classifiers'
         self.gates = gates
