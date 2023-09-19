@@ -6,6 +6,7 @@ import mlflow
 from timm.models import *
 from timm.models import create_model
 from collect_metric_iter import aggregate_metrics, process_things
+from conformal_eedn import compute_conf_threshold
 from data_loading.data_loader_helper import get_path_to_project_root, split_dataloader_in_n
 from learning_helper import LearningHelper
 from log_helper import log_aggregate_metrics_mlflow
@@ -195,41 +196,3 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
 
     learning_helper.classifier_training_helper.set_conf_thresholds(alpha_qhat_dict)
    
-
-def compute_conf_threshold(mixed_score, scores_per_gate, all_score_per_gates):
-    MIN_POINTS_FOR_CONF = 20
-    alpha_confs = [0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05]    
-    alpha_qhat_dict = {'qhats': {}, 'qhat':{}, "qhats_all":{}, "qhats_per_gate":{}}
-    for alpha_conf in alpha_confs:
-        qhat_general = get_conf_thresh(mixed_score, alpha_conf)
-        qhats = []
-        qhats_all = []
-        qhats_per_gate = []
-        for l, scores_in_l in enumerate(scores_per_gate):
-            all_scores_in_l = all_score_per_gates[l]
-            qhat_all_l = get_conf_thresh(all_scores_in_l, alpha_conf)
-            qhat_per_gate = get_conf_thresh(scores_in_l, alpha_conf)
-            # for the main one, we use qhat_per_gate if we have enough point else we take the one over all points.
-            if len(scores_in_l) > MIN_POINTS_FOR_CONF :
-                qhat = qhat_per_gate
-            else:
-                qhat = qhat_all_l
-
-            qhats_per_gate.append(qhat_per_gate)
-            qhats.append(qhat)
-            qhats_all.append(qhat_all_l)
-        alpha_qhat_dict['qhats'][alpha_conf] = qhats
-        alpha_qhat_dict['qhat'][alpha_conf] =  qhat_general
-        alpha_qhat_dict['qhats_all'][alpha_conf] = qhats_all
-        alpha_qhat_dict['qhats_per_gate'][alpha_conf] =  qhats_per_gate
-
-    return alpha_qhat_dict
-
-def get_conf_thresh(list_scores, alpha_conf):
-
-    n = len(list_scores)
-    if n == 0 :
-        return 1-alpha_conf # random value
-
-    q_level = np.ceil((n+1)*(1-alpha_conf))/n
-    return np.quantile(list_scores, q_level, method='higher')

@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from enum import Enum
 
+from conformal_eedn import early_exit_conf_sets
+
 class GateSelectionMode(Enum):
     PROBABILISTIC = 'prob'
     DETERMINISTIC = 'det'
@@ -144,37 +146,3 @@ class ClassifierTrainingHelper:
             things_of_interest['sets_gated_strict'] = sets_gated_strict
         return things_of_interest
 
-def get_pred_sets(logits, qhat):
-    score = torch.nn.functional.softmax(logits, dim=1)
-    C_set = score >= (1-qhat)
-    return C_set
-
-def early_exit_conf_sets(alpha_qhat_dict, sample_exit_level_map,  all_logits, gated_logits):
-    sets_gated = {}
-    sets_gated_all = {}
-    sets_gated_strict = {}
-    sets_general = {}
-    G = len(all_logits)+1
-    for alpha in  alpha_qhat_dict['qhats'].keys():
-        sets_general[alpha] = get_pred_sets(gated_logits, alpha_qhat_dict['qhat'][alpha])
-        
-        sets_holder_gated = torch.ones_like(all_logits[0]).bool()
-        sets_holder_all = torch.ones_like(all_logits[0]).bool()
-        sets_holder_gated_strict = torch.ones_like(all_logits[0]).bool()
-        
-        for l  in range(G):
-            logits_at_l = torch.nn.functional.softmax(all_logits[l], dim=1)
-            exited_t_l = sample_exit_level_map == l
-            exited_prob_at_l = logits_at_l[exited_t_l]
-            sets_holder_gated[exited_t_l] = get_pred_sets(exited_prob_at_l, alpha_qhat_dict['qhats'][alpha][l])
-            sets_holder_all[exited_t_l] = get_pred_sets(exited_prob_at_l, alpha_qhat_dict['qhats_all'][alpha][l])
-            sets_holder_gated_strict[exited_t_l] = get_pred_sets(exited_prob_at_l, alpha_qhat_dict['qhats_per_gate'][alpha][l])
-        
-        sets_gated[alpha] = sets_holder_gated
-        sets_gated_all[alpha] = sets_holder_all
-        sets_gated_strict[alpha] = sets_holder_gated_strict
-
-    
-
-
-    sets_general ,sets_gated,sets_gated_all,sets_gated_strict
