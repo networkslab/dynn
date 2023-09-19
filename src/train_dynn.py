@@ -221,7 +221,7 @@ else:
     learning_helper = LearningHelper(net, optimizer, args, device)
     num_warmup_epoch = 1
     if args.dataset == 'svhn':
-        num_warmup_epoch = 5
+        num_warmup_epoch = 1
     for epoch in range(num_warmup_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
         val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=epoch, mode='val', experiment_name=experiment_name)

@@ -101,8 +101,10 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
         metrics_to_aggregate_dict['final_pow_entropy'] = (entropy_pow, batch_size)
         metrics_to_aggregate_dict['final_margins'] = (margins, batch_size)
         metrics_to_aggregate_dict['final_ece'] = (average_ece*batch_size*100.0, batch_size)
-        metrics_to_aggregate_dict['final_score'] = (score, batch_size)
-
+        metrics_to_aggregate_dict['all_final_score'] = (score, batch_size)
+        if 'sample_exit_level_map' in things_of_interest:
+                score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == gates_count)]
+                metrics_to_aggregate_dict['score_per_final_gate'] = (list(score_filtered), batch_size)
     if 'intermediate_logits' in things_of_interest:
         intermediate_logits = things_of_interest['intermediate_logits'] 
 
@@ -112,7 +114,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
         correct_class_cheating = torch.full(shape_of_correct,False).to(pred_final_head.device)
         
         entries = ['ens_correct_per_gate','correct_per_gate', 'correct_cheating_per_gate','list_correct_per_gate','margins_per_gate',
-        'p_max_per_gate','entropy_per_gate','pow_entropy_per_gate','ece_per_gate','score_per_gate']
+        'p_max_per_gate','entropy_per_gate','pow_entropy_per_gate','ece_per_gate','score_per_gate', 'all_score_per_gate']
         for entry in entries:
             metrics_to_aggregate_dict[entry] = ([0 for _ in range(gates_count)], batch_size)
         for g in range(gates_count):
@@ -153,8 +155,8 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
             if 'sample_exit_level_map' in things_of_interest:
                 score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == g)]
                 metrics_to_aggregate_dict['score_per_gate'][0][g] = list(score_filtered)
-            else:
-                metrics_to_aggregate_dict['score_per_gate'][0][g] = score
+            
+            metrics_to_aggregate_dict['all_score_per_gate'][0][g] = score
 
         correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
         metrics_to_aggregate_dict['cheating_correct'] = (correct_class_cheating.sum().item(), batch_size)

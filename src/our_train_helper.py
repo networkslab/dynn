@@ -183,41 +183,53 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
 
     ## compute the quantiles for the conformal intervals
     
-    score, n = val_metrics_dict['gated_score']
-    alpha_confs = [0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05]
-    alpha_qhat_dict = {}
-    for alpha_conf in alpha_confs:
-        q_level = np.ceil((n+1)*(1-alpha_conf))/n
-        qhat_general = np.quantile(score, q_level, method='higher')
-        
-        scores_per_gate, n = val_metrics_dict['score_per_gate']
-        qhats = []
-        for scores_in_l in scores_per_gate:
-            if len(scores_in_l) > 10 :
-                q_level = np.ceil((n+1)*(1-alpha_conf))/n
-                qhat = np.quantile(scores_in_l, q_level, method='higher')
-            else:
-                qhat = qhat_general
-            qhats.append(qhat)
-        # add the last one
-        final_score, n = val_metrics_dict['final_score']
-        q_level = np.ceil((n+1)*(1-alpha_conf))/n
-        qhat = np.quantile(final_score, q_level, method='higher')
-        qhats.append(qhat)
-        alpha_qhat_dict[alpha_conf] = {'qhats':qhats, 'qhat':qhat}
+    mixed_score, n = val_metrics_dict['gated_score']
+    scores_per_gate, n = val_metrics_dict['score_per_gate']
+    score_per_final_gate, n = val_metrics_dict['score_per_final_gate']
+
+    all_score_per_gates, n = val_metrics_dict['all_score_per_gate']
+    all_final_score, n = val_metrics_dict['all_final_score']
+
+    alpha_qhat_dict = compute_conf_threshold(mixed_score, scores_per_gate+[score_per_final_gate], all_score_per_gates+[all_final_score])
+    
 
     learning_helper.classifier_training_helper.set_conf_thresholds(alpha_qhat_dict)
    
 
-    #learning_helper.gate_training_helper.set_ratios(pos_weights)
-    # TODO add metric for validation and early stopping
-    # if freeze_classifier_with_val:
-    #     for idx in range(args.G):
-    #         classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
-    #         accuracy_tracker = net.module.accuracy_trackers[idx]
-    #         if accuracy_tracker.should_freeze(classifier_accuracy):
-    #             net.module.freeze_intermediate_classifier(idx)
-    #             print(f"FREEZING CLASSIFIER {idx}")
-    #         else:
-    #             accuracy_tracker.insert_acc(classifier_accuracy)
-        
+def compute_conf_threshold(mixed_score, scores_per_gate, all_score_per_gates):
+    MIN_POINTS_FOR_CONF = 20
+    alpha_confs = [0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05]    
+    alpha_qhat_dict = {'qhats': {}, 'qhat':{}, "qhats_all":{}, "qhats_per_gate":{}}
+    for alpha_conf in alpha_confs:
+        qhat_general = get_conf_thresh(mixed_score, alpha_conf)
+        qhats = []
+        qhats_all = []
+        qhats_per_gate = []
+        for l, scores_in_l in enumerate(scores_per_gate):
+            all_scores_in_l = all_score_per_gates[l]
+            qhat_all_l = get_conf_thresh(all_scores_in_l, alpha_conf)
+            qhat_per_gate = get_conf_thresh(scores_in_l, alpha_conf)
+            # for the main one, we use qhat_per_gate if we have enough point else we take the one over all points.
+            if len(scores_in_l) > MIN_POINTS_FOR_CONF :
+                qhat = qhat_per_gate
+            else:
+                qhat = qhat_all_l
+
+            qhats_per_gate.append(qhat_per_gate)
+            qhats.append(qhat)
+            qhats_all.append(qhat_all_l)
+        alpha_qhat_dict['qhats'][alpha_conf] = qhats
+        alpha_qhat_dict['qhat'][alpha_conf] =  qhat_general
+        alpha_qhat_dict['qhats_all'][alpha_conf] = qhats_all
+        alpha_qhat_dict['qhats_per_gate'][alpha_conf] =  qhats_per_gate
+
+    return alpha_qhat_dict
+
+def get_conf_thresh(list_scores, alpha_conf):
+
+    n = len(list_scores)
+    if n == 0 :
+        return 1-alpha_conf # random value
+
+    q_level = np.ceil((n+1)*(1-alpha_conf))/n
+    return np.quantile(list_scores, q_level, method='higher')
