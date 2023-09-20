@@ -90,7 +90,7 @@ if args.use_mlflow:
     if args.barely_train:
         experiment_name = 'test_run'    
     else:
-        experiment_name = now.strftime("%m/%d/%Y")
+        experiment_name = now.strftime("%m-%d-%Y")
     setup_mlflow(name, cfg, experiment_name=experiment_name)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
