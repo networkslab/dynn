@@ -15,6 +15,7 @@ import time
 from log_helper import setup_mlflow
 from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_svhn_dataloaders, split_dataloader_in_n
 from timm.models import *
+from models.custom_modules.gate import GateType
 from timm.models import create_model
 from models.op_counter import measure_model_and_assign_cost_per_exit
 from metrics_utils import compute_detached_score, compute_detached_uncertainty_metrics
@@ -76,15 +77,12 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
     val_pred_2, val_target_2 = tester.calc_logit(val_loader_2)
     test_preds = []
     test_targets = []
+    costs_at_exit = model.module.mult_add_at_exits
     for test_loader in test_loaders:
         test_pred, test_target = tester.calc_logit(test_loader)
         test_preds.append(test_pred)
         test_targets.append(test_target)
-    # TODO: Fix model not showing the right value here after bad merge.
-    # costs_at_exit = model.module.mult_add_at_exits
-    costs_at_exit = [5533610.0, 6843188.0, 8152766.0, 9462344.0, 10771922.0, 12081500.0, 13391078.0]
-    costs_at_exit_normalized = torch.tensor(costs_at_exit) / (1e6)
-    costs_at_exit = costs_at_exit_normalized.tolist()
+
 
      # split the validation into 2
     val_loader_1, val_loader_2 = split_dataloader_in_n(val_loader, n=2)
@@ -350,6 +348,12 @@ def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_s
     # TODO: fix this for weighted to serialize where the intermediate head positions were
     # net.set_intermediate_heads(checkpoint['intermediate_head_positions'])
     net.set_intermediate_heads([i for i in range(G)])
+    if 'baseline' in args.arch:
+        net.set_learnable_gates(device,
+                                [i for i in range(G)],
+                                direct_exit_prob_param=True,
+                                gate_type=GateType.IDENTITY
+                                )
     if device == 'cuda':
         net = torch.nn.DataParallel(net)
         cudnn.benchmark = True
