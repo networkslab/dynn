@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training'
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr', default=2e-4, type=float, help='minimal learning rate')
-parser.add_argument('--dataset', type=str, default='cifar10',
+parser.add_argument('--dataset', type=str, default='svhn',
                     help='cifar10 or cifar100 or svhn')
 parser.add_argument('--batch', type=int, default=64,
                     help='batch size')

@@ -90,7 +90,8 @@ if args.use_mlflow:
     if args.barely_train:
         experiment_name = 'test_run'    
     else:
-        experiment_name = now.strftime("%m-%d-%Y")
+        #experiment_name = now.strftime("%m-%d-%Y")
+        experiment_name = 'longer_svhn'
     setup_mlflow(name, cfg, experiment_name=experiment_name)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -121,8 +122,10 @@ elif args.dataset=='svhn':
     IMG_SIZE = 32
     args.G = 6
     train_loader, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch, val_size=5000)
-    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
-                            map_location=torch.device(device))
+    # checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
+    #                          map_location=torch.device(device)) # less trained point
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.90.pth'),
+                            map_location=torch.device(device)) # more trained point
 transformer_layer_gating = [g for g in range(args.G)]
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
@@ -224,7 +227,7 @@ else:
     learning_helper = LearningHelper(net, optimizer, args, device)
     num_warmup_epoch = 1
     if args.dataset == 'svhn':
-        num_warmup_epoch = 5
+        num_warmup_epoch = 2
     elif args.dataset == 'cifar10':
         num_warmup_epoch = 2
     for epoch in range(num_warmup_epoch):
