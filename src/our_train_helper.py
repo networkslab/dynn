@@ -10,7 +10,7 @@ from data_loading.data_loader_helper import get_path_to_project_root, split_data
 from learning_helper import LearningHelper
 from log_helper import log_aggregate_metrics_mlflow
 from models.classifier_training_helper import LossContributionMode
-from utils import  aggregate_dicts, progress_bar
+from utils import aggregate_dicts, progress_bar
 from early_exit_utils import switch_training_phase
 from models.t2t_vit import TrainingPhase
 from plasticity_analysis.plasticity_metrics_utility import get_network_weight_norm_dict
@@ -36,12 +36,8 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_l
     WARMUP_MOVING_AVG_WINDOW = 10 # average 20 batches.
 
     helper.net.train()
-    lowest_val_losses = [9000 for _ in range(args.G)]
-    highest_val_accs = [-1 for _ in range(args.G)]
     highest_avg_val_accs = [-1 for _ in range(args.G)]
     moving_avg_accs = [torch.zeros(WARMUP_MOVING_AVG_WINDOW) for _ in range(args.G)]
-    increase_val_loss_counter = [0 for _ in range(args.G)]
-    decrease_val_acc_counter = [0 for _ in range(args.G)]
     decrease_avg_val_acc_counter = [0 for _ in range(args.G)]
     metrics_dict = {}
     for batch_idx, (train_samples, val_samples) in enumerate(zip(train_loader, itertools.cycle(val_loader))):
@@ -78,8 +74,6 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_l
                     moving_avg_acc[batch_idx % WARMUP_MOVING_AVG_WINDOW] = classifier_acc
                     avg_acc = torch.mean(moving_avg_acc)
                     log_dict_val_metrics[f'warmup/avg_val_acc_{WARMUP_MOVING_AVG_WINDOW}_{classifier_idx}'] = avg_acc.item()
-                    lowest_val_loss = lowest_val_losses[classifier_idx]
-                    highest_val_acc = highest_val_accs[classifier_idx]
                     highest_avg_val_acc = highest_avg_val_accs[classifier_idx]
                     if avg_acc > highest_avg_val_acc:
                         highest_avg_val_accs[classifier_idx] = avg_acc
@@ -87,33 +81,8 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_l
                     else: # decrease in avg classifier accuracy
                         decrease_avg_val_acc_counter[classifier_idx] += 1
                         if decrease_avg_val_acc_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
-                            print(f"AVG ACC BASED: FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
+                            print(f"FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
                             helper.net.module.freeze_intermediate_classifier(classifier_idx)
-                    # if highest_val_acc < classifier_acc:
-                    #     highest_val_accs[classifier_idx] = classifier_acc
-                    #     decrease_val_acc_counter[classifier_idx] = 0
-                    # else: # decrease in classifier accuracy
-                    #     decrease_val_acc_counter[classifier_idx] += 1
-                    #     if decrease_val_acc_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
-                    #         print(f"ACCURACY BASED: FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
-                    #         # helper.net.module.freeze_intermediate_classifier(classifier_idx)
-                    # if highest_val_acc < classifier_acc:
-                    #     highest_val_accs[classifier_idx] = classifier_acc
-                    #     decrease_val_acc_counter[classifier_idx] = 0
-                    # else: # decrease in classifier accuracy
-                    #     decrease_val_acc_counter[classifier_idx] += 1
-                    #     if decrease_val_acc_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
-                    #         print(f"ACCURACY BASED: FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
-                            # helper.net.module.freeze_intermediate_classifier(classifier_idx)
-                    # if l < lowest_val_loss:
-                    #     # print(f"{classifier_idx}: New lower val {l}, previous {lowest_val_loss}. Size: {val_targets.shape[0]}")
-                    #     lowest_val_losses[classifier_idx] = l
-                    #     increase_val_loss_counter[classifier_idx] = 0 # reset counter.
-                    # else:
-                    #     increase_val_loss_counter[classifier_idx] += 1
-                    #     if increase_val_loss_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
-                    #         print(f"LOSS BASED: FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
-                            # helper.net.module.freeze_intermediate_classifier(classifier_idx)
                 if helper.net.module.are_all_classifiers_frozen():
                     print("All classifiers are frozen in warmup, exiting")
                     break
@@ -301,3 +270,41 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
     #         else:
     #             accuracy_tracker.insert_acc(classifier_accuracy)
 
+def eval_baseline(args, helper: LearningHelper, val_loader, device, epoch, mode: str):
+    helper.net.eval()
+    metrics_dict = {}
+    metrics_dicts = []
+    log_dicts_of_trials = {}
+    average_trials_log_dict = {}
+    for batch_idx, (inputs, targets) in enumerate(val_loader):
+        inputs, targets = inputs.to(device), targets.to(device)
+        batch_size = targets.size(0)
+
+        loss, things_of_interest, _ = helper.get_warmup_loss(inputs, targets)
+
+        # obtain the metrics associated with the batch
+        metrics_of_batch = process_things(things_of_interest, gates_count=args.G,
+                                          targets=targets, batch_size=batch_size,
+                                          cost_per_exit=helper.net.module.mult_add_at_exits)
+        metrics_of_batch['loss'] = (loss.item(), batch_size)
+
+
+        # keep track of the average metrics
+        metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G)
+
+        # format the metric ready to be displayed
+        log_dict = log_aggregate_metrics_mlflow(
+            prefix_logger=mode,
+            metrics_dict=metrics_dict, gates_count=args.G)
+        #display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
+
+    metrics_dicts.append(metrics_dict)
+    for k, v in log_dict.items():
+        aggregate_dicts(log_dicts_of_trials, k, v)
+    for k,v in log_dicts_of_trials.items():
+        average_trials_log_dict[k] = np.mean(v)
+
+    # gated_acc = average_trials_log_dict[mode+'/gated_acc']
+    # average_trials_log_dict[mode+'/test_acc']= gated_acc
+    # mlflow.log_metrics(average_trials_log_dict, step=epoch)
+    return metrics_dict, log_dicts_of_trials

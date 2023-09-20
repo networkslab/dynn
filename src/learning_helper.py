@@ -48,13 +48,6 @@ class LearningHelper:
         final_logits, intermediate_logits, _ = self.net(inputs)
         loss = criterion(final_logits, targets)  # the grad_fn of this loss should be None if frozen
         intermediate_losses = []
-        # if self.loss_contribution_mode == LossContributionMode.BOOSTED: # our version of boosting is just training early classifier more
-        #     num_gates = len(intermediate_logits)+1
-        #     for l, intermediate_logit in enumerate(intermediate_logits):
-        #         intermediate_loss = criterion(intermediate_logit, targets)
-        #         intermediate_losses.append(intermediate_loss)
-        #         loss += (num_gates - l)*intermediate_loss # we scale the gradient by G-l => early gates have bigger gradient
-        # else: # plain optimization of all the intermediate classifiers
         for intermediate_logit in intermediate_logits:
             intermediate_loss = criterion(intermediate_logit, targets)
             loss += intermediate_loss

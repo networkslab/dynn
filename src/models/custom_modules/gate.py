@@ -8,6 +8,7 @@ class GateType(Enum):
     UNCERTAINTY = 'unc'
     CODE = 'code'
     CODE_AND_UNC = 'code_and_unc'
+    IDENTITY = 'identity'
 
 
 class Gate(nn.Module):

@@ -23,6 +23,7 @@ from .custom_modules.custom_GELU import CustomGELU
 from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
 from .custom_modules.learnable_code_gate import LearnableCodeGate
 from .custom_modules.learnable_complex_gate import LearnableComplexGate
+from .custom_modules.identity_gate import IdentityGate
 from .gate_training_helper import GateTrainingScheme
 from .classifier_training_helper import GateSelectionMode
 from sklearn.metrics import accuracy_score
@@ -232,7 +233,8 @@ class T2T_ViT(nn.Module):
         elif gate_type == GateType.CODE_AND_UNC:
             self.gates = nn.ModuleList([
                 LearnableComplexGate(device, input_dim=input_dim_code, proj_dim=proj_dim, num_proj=num_proj) for _ in range(len(self.gate_positions))])
-        
+        elif gate_type == GateType.IDENTITY:
+            self.gates = nn.ModuleList([IdentityGate() for _ in range(len(self.gate_positions))])
 
     def get_gate_prediction(self, l, current_logits, intermediate_codes):
         if self.gate_type == GateType.UNCERTAINTY:

@@ -80,8 +80,11 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
         test_pred, test_target = tester.calc_logit(test_loader)
         test_preds.append(test_pred)
         test_targets.append(test_target)
-
-    costs_at_exit = model.module.mult_add_at_exits
+    # TODO: Fix model not showing the right value here after bad merge.
+    # costs_at_exit = model.module.mult_add_at_exits
+    costs_at_exit = [5533610.0, 6843188.0, 8152766.0, 9462344.0, 10771922.0, 12081500.0, 13391078.0]
+    costs_at_exit_normalized = torch.tensor(costs_at_exit) / (1e6)
+    costs_at_exit = costs_at_exit_normalized.tolist()
 
      # split the validation into 2
     val_loader_1, val_loader_2 = split_dataloader_in_n(val_loader, n=2)
@@ -178,7 +181,12 @@ class Tester(object):
             targets.append(target)
             with torch.no_grad():
                 input_var = torch.autograd.Variable(input)
-                output = self.model.forward(input_var)
+                if 'baseline' in self.args.arch:
+                    last_head_out, intermediate_logits, _ = self.model.forward(input_var)
+                    intermediate_logits.append(last_head_out)
+                    output = intermediate_logits
+                else:
+                    output = self.model.forward(input_var)
                 if not isinstance(output, list):
                     output = [output]
                 for b in range(n_stage):
@@ -366,10 +374,11 @@ def main(args):
         NUM_CLASSES = 10
         if 'weighted' in args.arch:
             checkpoint_dir = "checkpoint_cifar10_t2t_vit_7_weighted"
+        if 'baseline' in args.arch:
+            checkpoint_dir = "checkpoint_cifar10_t2t_vit_7_baseline"
         else:
             checkpoint_dir = "checkpoint_cifar10_t2t_7_boosted"
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
-        num_classes = 10
         G = 6
     elif args.dataset == 'cifar100':
         NUM_CLASSES = 100
@@ -378,7 +387,6 @@ def main(args):
         else:
             checkpoint_dir = "checkpoint_cifar100_t2t_vit_14_boosted"
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
-        num_classes = 100
         G = 13
     elif args.dataset=='svhn':
         NUM_CLASSES = 10
@@ -395,6 +403,7 @@ def main(args):
         raise 'Unsupported dataset'
      # LOAD MODEL
     checkpoint_path = get_latest_checkpoint_path(checkpoint_dir)
+    print(f"Loading model with checkpoint path {checkpoint_path}")
 
     net = load_model_from_checkpoint(args.arch, checkpoint_path, device, NUM_CLASSES, IMG_SIZE, G)
     measure_model_and_assign_cost_per_exit(net.module, IMG_SIZE, IMG_SIZE, NUM_CLASSES)
@@ -408,7 +417,9 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Boosted eval')
-    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7', 't2t_vit_14_boosted', 't2t_vit_7_weighted', 't2t_vit_14_weighted'], default='t2t_vit_7_boosted', help='model')
+    parser.add_argument('--arch', type=str, choices=['t2t_vit_7_boosted', 't2t_vit_7',
+                                                     't2t_vit_14_boosted', 't2t_vit_7_weighted',
+                                                     't2t_vit_14_weighted', 't2t_vit_7_baseline'], default='t2t_vit_7_boosted', help='model')
     parser.add_argument('--dataset', type=str, default='svhn', help='dataset')
     parser.add_argument('--result_dir', type=str, default="results",help='Directory for storing FLOP and acc')
     parser.add_argument('--use_mlflow',default=True,help='Store the run with mlflow')
