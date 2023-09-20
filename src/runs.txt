@@ -81,10 +81,10 @@ python train_dynn.py --ce_ic_tradeoff 2.8 --dataset cifar100 --arch t2t_vit_14 -
 
 
 
-scp floregol@10.69.9.15:/home/floregol/git/dynn/src/*.pk .
-scp floregol@10.69.9.139:/home/floregol/git/dynn/src/*.pk .
-scp floregol@10.121.170.0:/home/floregol/git/dynn/src/*.pk .
-scp floregol@10.122.85.237:/home/floregol/git/dynn/src/*.pk .
-scp flo@10.69.9.93:/home/flo/git/dynn/src/*.pk .
-scp floregol@10.69.9.182:/home/floregol/git/dynn/src/*.pk .
+scp floregol@10.69.9.15:/home/floregol/git/dynn/src/*.pk .;
+scp floregol@10.69.9.139:/home/floregol/git/dynn/src/*.pk .;
+scp floregol@10.121.170.0:/home/floregol/git/dynn/src/*.pk .;
+scp floregol@10.122.85.237:/home/floregol/git/dynn/src/*.pk .;
+scp flo@10.69.9.93:/home/flo/git/dynn/src/*.pk .;
+scp floregol@10.69.9.182:/home/floregol/git/dynn/src/*.pk .;
 

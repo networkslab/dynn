@@ -26,7 +26,7 @@ parser = argparse.ArgumentParser(description='PyTorch CIFAR10/CIFAR100 Training'
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr', default=2e-4, type=float, help='minimal learning rate')
-parser.add_argument('--dataset', type=str, default='svhn',
+parser.add_argument('--dataset', type=str, default='cifar100',
                     help='cifar10 or cifar100 or svhn')
 parser.add_argument('--batch', type=int, default=64,
                     help='batch size')
@@ -57,20 +57,22 @@ if args.dataset=='cifar10':
     img_size = 224
     train_loader, test_loader = get_cifar_10_dataloaders(img_size = img_size,train_batch_size=args.batch, test_batch_size=args.batch)
     
-    #pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
-    pretrained_model_weights = os.path.join(path_project,"model_weights/71.7_T2T_ViT_7.pth.tar")
-    MODEL = 't2t_vit_7'
+    pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
+    #pretrained_model_weights = os.path.join(path_project,"model_weights/71.7_T2T_ViT_7.pth.tar")
+    #MODEL = 't2t_vit_7'
+    #MODEL = 't2t_vit_14'
     if args.resume:
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'))
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     img_size = 224
     train_loader, test_loader = get_cifar_100_dataloaders(img_size = img_size,train_batch_size=args.batch)
-    
-    pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
-    if args.resume:
-        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cirfar100_t2t-vit-14_88.4.pth'))
-    MODEL = 't2t_vit_14'
+    pretrained_model_weights = os.path.join(path_project,"model_weights/71.7_T2T_ViT_7.pth.tar")
+    MODEL = 't2t_vit_7'
+    # pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
+    # if args.resume:
+    #     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cirfar100_t2t-vit-14_88.4.pth'))
+    # MODEL = 't2t_vit_14'
 elif args.dataset=='svhn':
     NUM_CLASSES = 10
     img_size = 32
