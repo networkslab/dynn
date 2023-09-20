@@ -302,11 +302,10 @@ class Tester(object):
         elif alpha_qhat_dict is not None:
              # we compute the prediction set from a single threshold computed on all the outputs, regardless of the gate
            
-            sets_general, sets_gated, sets_gated_all, sets_gated_strict = early_exit_conf_sets(alpha_qhat_dict, sample_exit_map, logits, gated_logits)
-            things_of_interest = {'sets_general':sets_general, 'sets_gated':sets_gated,'sets_gated_all':sets_gated_all, 'sets_gated_strict':sets_gated_strict}
-            keys_sets = ['sets_general','sets_gated','sets_gated_all','sets_gated_strict']
-            for type_of_sets in keys_sets: #we use different strategies to build the conformal sets.
-                conf_sets_dict = things_of_interest[type_of_sets]
+            dict_sets = early_exit_conf_sets(alpha_qhat_dict, sample_exit_map, logits, gated_logits)
+            
+            for type_of_sets, conf_sets_dict in dict_sets.items(): #we use different strategies to build the conformal sets.
+                
                 for alpha, conf_sets  in conf_sets_dict.items():
                     C, emp_alpha = compute_coverage_and_inef(conf_sets, targets.int())
                     metrics_dict['test/'+type_of_sets+'_C_'+str(alpha)] = C

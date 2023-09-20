@@ -139,10 +139,7 @@ class ClassifierTrainingHelper:
             gated_logits = things_of_interest['gated_y_logits']
             sample_exit_level_map = things_of_interest['sample_exit_level_map']
             all_logits = things_of_interest['intermediate_logits'] + [things_of_interest['final_logits']]
-            sets_general, sets_gated, sets_gated_all, sets_gated_strict = early_exit_conf_sets(self.alpha_qhat_dict, sample_exit_level_map, all_logits, gated_logits)
-            things_of_interest['sets_general'] = sets_general
-            things_of_interest['sets_gated'] = sets_gated
-            things_of_interest['sets_gated_all'] = sets_gated_all
-            things_of_interest['sets_gated_strict'] = sets_gated_strict
+            dict_sets = early_exit_conf_sets(self.alpha_qhat_dict, sample_exit_level_map, all_logits, gated_logits)
+            things_of_interest = dict_sets | things_of_interest
         return things_of_interest
 

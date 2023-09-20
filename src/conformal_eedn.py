@@ -56,6 +56,10 @@ def early_exit_conf_sets(alpha_qhat_dict, sample_exit_level_map,  all_logits, ga
     sets_gated_strict = {}
     sets_general = {}
     G = len(all_logits)
+
+    dict_sets = {'sets_'+str(l): {} for l in range(G)}
+
+    
     for alpha in  alpha_qhat_dict['qhats'].keys():
         sets_general[alpha] = get_pred_sets(gated_logits, alpha_qhat_dict['qhat'][alpha])
         
@@ -70,12 +74,19 @@ def early_exit_conf_sets(alpha_qhat_dict, sample_exit_level_map,  all_logits, ga
             sets_holder_gated[exited_t_l] = get_pred_sets(exited_prob_at_l, alpha_qhat_dict['qhats'][alpha][l])
             sets_holder_all[exited_t_l] = get_pred_sets(exited_prob_at_l, alpha_qhat_dict['qhats_all'][alpha][l])
             sets_holder_gated_strict[exited_t_l] = get_pred_sets(exited_prob_at_l, alpha_qhat_dict['qhats_per_gate'][alpha][l])
-        
+            all_for_l = get_pred_sets(logits_at_l, alpha_qhat_dict['qhats_all'][alpha][l])
+            dict_sets['sets_'+str(l)][alpha] = all_for_l
+            
         sets_gated[alpha] = sets_holder_gated
         sets_gated_all[alpha] = sets_holder_all
         sets_gated_strict[alpha] = sets_holder_gated_strict
-
-    return sets_general ,sets_gated,sets_gated_all,sets_gated_strict
+        
+    dict_sets['sets_general'] = sets_general
+    dict_sets['sets_gated'] = sets_gated
+    dict_sets['sets_gated_all'] = sets_gated_all
+    dict_sets['sets_gated_strict'] = sets_gated_strict
+            
+    return dict_sets
 
 def compute_coverage_and_inef(conf_sets, targets):
     C = np.mean(np.sum(free(conf_sets.float()), axis=1))
