@@ -32,10 +32,17 @@ def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
 def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_loader, epoch, training_phase,
           bilevel_batch_count=20):
     print('\nEpoch: %d' % epoch)
-    VAL_WARMUP_PATIENCE = 50
+    VAL_WARMUP_PATIENCE = 100
+    WARMUP_MOVING_AVG_WINDOW = 10 # average 20 batches.
+
     helper.net.train()
     lowest_val_losses = [9000 for _ in range(args.G)]
+    highest_val_accs = [-1 for _ in range(args.G)]
+    highest_avg_val_accs = [-1 for _ in range(args.G)]
+    moving_avg_accs = [torch.zeros(WARMUP_MOVING_AVG_WINDOW) for _ in range(args.G)]
     increase_val_loss_counter = [0 for _ in range(args.G)]
+    decrease_val_acc_counter = [0 for _ in range(args.G)]
+    decrease_avg_val_acc_counter = [0 for _ in range(args.G)]
     metrics_dict = {}
     for batch_idx, (train_samples, val_samples) in enumerate(zip(train_loader, itertools.cycle(val_loader))):
         train_inputs = train_samples[0]
@@ -47,26 +54,73 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_l
             #  we compute the warmup loss
             loss, things_of_interest, _ = helper.get_warmup_loss(train_inputs, train_targets)
             if helper.early_exit_warmup:
+
                 val_inputs = val_samples[0]
                 val_targets = val_samples[1]
                 val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
-                val_loss, _, intermediate_losses = helper.get_warmup_loss(val_inputs, val_targets)
+                val_loss, things_of_interest_val, intermediate_losses = helper.get_warmup_loss(val_inputs, val_targets)
                 intermediate_losses = list(map(lambda l: l.item(), intermediate_losses))
+                log_dict_val_metrics = {f"warmup/val_loss_{idx}": val for (idx, val) in enumerate(intermediate_losses)}
+
                 for classifier_idx, l in enumerate(intermediate_losses):
+
+                    if val_targets.shape[0] < val_loader.batch_size:
+                        continue
                     if helper.net.module.is_classifier_frozen(classifier_idx): # classifier already frozen
                         continue
+
+                    _, predicted_inter = things_of_interest_val['intermediate_logits'][classifier_idx].max(1)
+                    correct = predicted_inter.eq(val_targets)
+                    classifier_acc = torch.sum(correct) / val_loader.batch_size
+                    log_dict_val_metrics[f'warmup/val_acc_{classifier_idx}'] = classifier_acc.item()
+
+                    moving_avg_acc = moving_avg_accs[classifier_idx]
+                    moving_avg_acc[batch_idx % WARMUP_MOVING_AVG_WINDOW] = classifier_acc
+                    avg_acc = torch.mean(moving_avg_acc)
+                    log_dict_val_metrics[f'warmup/avg_val_acc_{WARMUP_MOVING_AVG_WINDOW}_{classifier_idx}'] = avg_acc.item()
                     lowest_val_loss = lowest_val_losses[classifier_idx]
-                    if l < lowest_val_loss:
-                        lowest_val_losses[classifier_idx] = l
-                        increase_val_loss_counter[classifier_idx] = 0 # reset counter.
-                    else:
-                        increase_val_loss_counter[classifier_idx] += 1
-                        if increase_val_loss_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
-                            print(f"FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
+                    highest_val_acc = highest_val_accs[classifier_idx]
+                    highest_avg_val_acc = highest_avg_val_accs[classifier_idx]
+                    if avg_acc > highest_avg_val_acc:
+                        highest_avg_val_accs[classifier_idx] = avg_acc
+                        decrease_avg_val_acc_counter[classifier_idx] = 0
+                    else: # decrease in avg classifier accuracy
+                        decrease_avg_val_acc_counter[classifier_idx] += 1
+                        if decrease_avg_val_acc_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
+                            print(f"AVG ACC BASED: FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
                             helper.net.module.freeze_intermediate_classifier(classifier_idx)
+                    # if highest_val_acc < classifier_acc:
+                    #     highest_val_accs[classifier_idx] = classifier_acc
+                    #     decrease_val_acc_counter[classifier_idx] = 0
+                    # else: # decrease in classifier accuracy
+                    #     decrease_val_acc_counter[classifier_idx] += 1
+                    #     if decrease_val_acc_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
+                    #         print(f"ACCURACY BASED: FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
+                    #         # helper.net.module.freeze_intermediate_classifier(classifier_idx)
+                    # if highest_val_acc < classifier_acc:
+                    #     highest_val_accs[classifier_idx] = classifier_acc
+                    #     decrease_val_acc_counter[classifier_idx] = 0
+                    # else: # decrease in classifier accuracy
+                    #     decrease_val_acc_counter[classifier_idx] += 1
+                    #     if decrease_val_acc_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
+                    #         print(f"ACCURACY BASED: FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
+                            # helper.net.module.freeze_intermediate_classifier(classifier_idx)
+                    # if l < lowest_val_loss:
+                    #     # print(f"{classifier_idx}: New lower val {l}, previous {lowest_val_loss}. Size: {val_targets.shape[0]}")
+                    #     lowest_val_losses[classifier_idx] = l
+                    #     increase_val_loss_counter[classifier_idx] = 0 # reset counter.
+                    # else:
+                    #     increase_val_loss_counter[classifier_idx] += 1
+                    #     if increase_val_loss_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
+                    #         print(f"LOSS BASED: FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
+                            # helper.net.module.freeze_intermediate_classifier(classifier_idx)
                 if helper.net.module.are_all_classifiers_frozen():
                     print("All classifiers are frozen in warmup, exiting")
                     break
+
+                mlflow.log_metrics(log_dict_val_metrics,
+                                   step=batch_idx +
+                                        (epoch * len(train_loader)))
         else:
             if batch_idx % bilevel_batch_count == 0:
                 if helper.net.module.are_all_classifiers_frozen(): # no need to train classifiers anymore
