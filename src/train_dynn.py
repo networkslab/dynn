@@ -27,6 +27,9 @@ from models.weighted_t2t_vit import WeightedT2tVit
 from models.weighted.wpn import MLP_tanh
 from models.t2t_vit import GateTrainingScheme, GateSelectionMode, TrainingPhase
 
+from datetime import datetime
+
+now = datetime.now() # current date and time
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
@@ -87,7 +90,7 @@ if args.use_mlflow:
     if args.barely_train:
         experiment_name = 'test_run'    
     else:
-        experiment_name = 'conf'
+        experiment_name = now.strftime("%m/%d/%Y")
     setup_mlflow(name, cfg, experiment_name=experiment_name)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -221,7 +224,9 @@ else:
     learning_helper = LearningHelper(net, optimizer, args, device)
     num_warmup_epoch = 1
     if args.dataset == 'svhn':
-        num_warmup_epoch = 1
+        num_warmup_epoch = 5
+    elif args.dataset == 'cifar10':
+        num_warmup_epoch = 2
     for epoch in range(num_warmup_epoch):
         train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
         val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=epoch, mode='val', experiment_name=experiment_name)
