@@ -391,7 +391,7 @@ def main(args):
         if 'baseline' in args.arch:
             checkpoint_dir = "checkpoint_cifar10_t2t_vit_7_baseline"
         else:
-            checkpoint_dir = "checkpoint_cifar10_t2t_7_boosted"
+            checkpoint_dir = "checkpoint_cifar10_t2t_vit_7_boosted"
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
         G = 6
     elif args.dataset == 'cifar100':
