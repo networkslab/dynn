@@ -17,8 +17,11 @@ python train_dynn.py --ce_ic_tradeoff 0.01 --dataset cifar100 --arch t2t_vit_14 
 python train_dynn.py --ce_ic_tradeoff 0.5 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
 python train_dynn.py --ce_ic_tradeoff 0.6 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
 python train_dynn.py --ce_ic_tradeoff 0.7 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
-
-
+python train_dynn.py --ce_ic_tradeoff 0.8 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 0.9 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 5 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 2 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
+python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
 
 ssh flo@10.69.9.93
 python train_dynn.py --ce_ic_tradeoff 0.1 --dataset svhn --arch t2t_vit_7 --num_epoch 15 --batch 256;
@@ -55,13 +58,22 @@ python boosted_adaptive_inference.py --dataset cifar100 --arch t2t_vit_14_booste
 
 ssh floregol@10.122.85.237
 
-python train_dynn.py --ce_ic_tradeoff 0.8 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 0.9 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 5 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 2 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
-python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar100 --arch t2t_vit_14 --num_epoch 30;
-
-
+python transfer_learning.py --dataset cifar10 --arch t2t_vit_14
+python train_dynn.py --dataset cifar10 --arch t2t_vit_14_weighted --num_epoch 15;
+python boosted_adaptive_inference.py --dataset cifar10 --arch t2t_vit_14_weighted;
+python train_dynn.py --dataset cifar10 --arch t2t_vit_14_weighted --num_epoch 15;
+python boosted_adaptive_inference.py --dataset cifar10 --arch t2t_vit_14_weighted;
+python train_dynn.py --ce_ic_tradeoff 0.01 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 0.5 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 0.1 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 0.6 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 0.7 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 0.8 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 0.9 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 5 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 2 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 1 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
+python train_dynn.py --ce_ic_tradeoff 3 --dataset cifar10 --arch t2t_vit_14 --num_epoch 15;
 
 
 ssh floregol@10.69.9.182
@@ -91,6 +103,8 @@ scp floregol@10.121.170.0:/home/floregol/git/dynn/src/*.pk .;
 scp floregol@10.122.85.237:/home/floregol/git/dynn/src/*.pk .;
 scp flo@10.69.9.93:/home/flo/git/dynn/src/*.pk .;
 scp floregol@10.69.9.182:/home/floregol/git/dynn/src/*.pk .;
+
+
 
 
 

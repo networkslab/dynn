@@ -188,7 +188,7 @@ def test(epoch):
             'epoch': epoch,
         }
         checkpoint_folder_path = get_abs_path(["checkpoint"])
-        target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_{MODEL}'
+        target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_{args.arch}'
         if not os.path.isdir(target_checkpoint_folder_path):
             os.mkdir(target_checkpoint_folder_path)
         torch.save(state, f'{target_checkpoint_folder_path}/ckpt_{args.lr}_{args.wd}_{acc}.pth')
