@@ -158,7 +158,7 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
     
     elif mode == 'test' and store_results:
         print('storing results....')
-        with open(experiment_name+'_'+args.dataset+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
+        with open(experiment_name+'_'+args.dataset+"_"+args.arch+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
             pk.dump(log_dicts_of_trials, file)
     return metrics_dict, best_acc, log_dicts_of_trials
 
