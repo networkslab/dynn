@@ -91,8 +91,8 @@ if args.use_mlflow:
     if args.barely_train:
         experiment_name = 'test_run'    
     else:
-        #experiment_name = now.strftime("%m-%d-%Y")
-        experiment_name = 'longer_svhn'
+        experiment_name = now.strftime("%m-%d-%Y")
+        #experiment_name = 'longer_svhn'
     setup_mlflow(name, cfg, experiment_name=experiment_name)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -105,7 +105,7 @@ model = args.arch
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
-    
+    max_warmup_epoch = 2
     train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch,
                                                     test_batch_size=args.batch, val_size=5000)
     if 't2t_vit_14' in args.arch:
@@ -119,7 +119,7 @@ if args.dataset=='cifar10':
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     IMG_SIZE = 224
-    
+    max_warmup_epoch = 1
     train_loader, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     if 't2t_vit_14' in args.arch:
         
@@ -134,7 +134,7 @@ elif args.dataset=='cifar100':
 elif args.dataset=='svhn':
     NUM_CLASSES = 10
     IMG_SIZE = 32
-    
+    max_warmup_epoch = 5
     train_loader, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch, val_size=5000)
     # checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
     #                          map_location=torch.device(device)) # less trained point
@@ -246,11 +246,10 @@ else:
     best_acc = 0
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
-    max_warmup_epoch = args.num_epoch // 2
     
     for warmup_epoch in range(max_warmup_epoch):
         train_single_epoch(args, learning_helper, device,
-                           train_loader, val_loader, epoch=warmup_epoch, training_phase=TrainingPhase.WARMUP,
+                           train_loader, epoch=warmup_epoch, training_phase=TrainingPhase.WARMUP,
                            bilevel_batch_count=args.bilevel_batch_count)
         val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=warmup_epoch, mode='val', experiment_name=experiment_name)
         #set_from_validation(learning_helper, val_metrics_dict)
