@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from torch.utils.data.sampler import SubsetRandomSampler
 import numpy as np
+
+from data_loading.cifar100LT import IMBALANCECIFAR100
 CIFAR_10_IMG_SIZE = 32 * 32
 CIFAR_100_IMG_SIZE = 32 * 32
 
@@ -88,6 +90,9 @@ def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_
         root=data_directory, train=True, download=True, transform=transform_train)
     test_set = torchvision.datasets.CIFAR100(
         root=data_directory, train=False, download=True, transform=transform_test)
+    
+    
+    
     test_loader = torch.utils.data.DataLoader(
         test_set, batch_size=test_batch_size, shuffle=False)
     if val_size > 0:
@@ -101,6 +106,40 @@ def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_
         train_loader = torch.utils.data.DataLoader(
             train_set, batch_size=train_batch_size, shuffle=True) # pass num_workers=n if multiprocessing is needed.
         return train_loader, test_loader
+
+def get_cifar_100LT_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100, val_size = 0):
+    
+    
+    transform_train = transforms.Compose([
+        transforms.Resize(img_size),
+        transforms.RandomCrop(img_size, padding=(img_size//8)),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)),
+    ])
+
+    transform_test = transforms.Compose([
+        transforms.Resize(img_size),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5071, 0.4867, 0.4408), (0.2675, 0.2565, 0.2761)), # TODO compute these values for the test set
+    ])
+    data_directory = get_abs_path(['data'])
+    train_set = IMBALANCECIFAR100(root=data_directory, train=True,
+                    download=True, transform=transform_train)
+    test_set = IMBALANCECIFAR100(root=data_directory, train=False,
+                    download=True, transform=transform_test)
+
+    test_loader = torch.utils.data.DataLoader(
+        test_set, batch_size=test_batch_size, shuffle=False)
+    
+    train_indices, val_indices = torch.utils.data.random_split(train_set, [len(train_set) - val_size, val_size], generator=generator)
+    train_sampler = SubsetRandomSampler(train_indices.indices)
+    valid_sampler = SubsetRandomSampler(val_indices.indices)
+    train_loader = torch.utils.data.DataLoader(train_set, batch_size=train_batch_size, sampler=train_sampler)
+    val_loader = torch.utils.data.DataLoader(train_set, batch_size=train_batch_size, sampler=valid_sampler)
+    return train_loader, val_loader, test_loader
+    
+
 
 def get_svhn_dataloaders(train_batch_size = 64, test_batch_size = 100, val_size = 0):
     data_directory = get_abs_path(['data'])
