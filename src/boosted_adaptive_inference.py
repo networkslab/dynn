@@ -12,6 +12,7 @@ import mlflow
 import torch.backends.cudnn as cudnn
 import math
 import time
+from conformal_eedn import compute_conf_threshold, compute_coverage_and_inef, early_exit_conf_sets
 from log_helper import setup_mlflow
 from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_svhn_dataloaders, split_dataloader_in_n
 from timm.models import *
@@ -117,11 +118,11 @@ def dynamic_evaluate(model, test_loader, val_loader, args):
             acc_val, _, T = tester.dynamic_eval_find_threshold(val_pred_1, val_target_1, probs, costs_at_exit) # find the T with val_1
            
             metrics_dict_val = tester.dynamic_eval_with_threshold(val_pred_2, val_target_2, costs_at_exit, T) # compute conformal
-            qhats_from_val = metrics_dict_val['qhats']
+            qhats_from_val = metrics_dict_val['alpha_qhat_dict']
             temp_from_val = metrics_dict_val['temp']
             metrics_dicts = []
             for i in range(n_test):
-                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, qhats=qhats_from_val, temp=temp_from_val)
+                metrics_dict = tester.dynamic_eval_with_threshold(test_preds[i], test_targets[i], costs_at_exit, T, alpha_qhat_dict=qhats_from_val, temp=temp_from_val)
                 metrics_dicts.append(metrics_dict)
             
             mlflow_dict, all_value_dicts = get_ml_flow_dict(metrics_dicts)
@@ -257,30 +258,34 @@ class Tester(object):
 
         return acc * 100.0 / n_sample, expected_flops, T
 
-    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds, qhats=None, temp=None):
+    def dynamic_eval_with_threshold(self, logits, targets, flops, thresholds, alpha_qhat_dict=None, temp=None):
         metrics_dict = {}
         n_stage, n_sample, _ = logits.size()
         max_preds, argmax_preds = logits.max(dim=2, keepdim=False) # take the max logits as confidence
         gated_logits = torch.empty((logits.shape[1],logits.shape[2]))
+        #logits_per_gate = [[] for _ in range(n_stage)]
         acc_rec, exit_count = torch.zeros(n_stage), torch.zeros(n_stage)
         acc, expected_flops = 0, 0
         correct_all = [0 for _ in range(n_stage)]
         acc_gated = []
+        sample_exit_map = []
         for i in range(n_sample):
             has_exited = False
             gold_label = targets[i]
-            for k in range(n_stage):
+            for l in range(n_stage):
                 # compute acc over all samples, regardless of exit
-                classifier_pred = int(argmax_preds[k][i].item())
+                classifier_pred = int(argmax_preds[l][i].item())
                 target = int(gold_label.item())
                 if classifier_pred == target:
-                    correct_all[k] += 1
-                if max_preds[k][i].item() >= thresholds[k] and not has_exited: # exit at k
-                    gated_logits[i] = logits[k,i]
+                    correct_all[l] += 1
+                if max_preds[l][i].item() >= thresholds[l] and not has_exited: # exit at k
+                    gated_logits[i] = logits[l,i]
+                    #logits_per_gate[l].append(logits[l,i,None])
+                    sample_exit_map.append(l)
                     if target == classifier_pred:
                         acc += 1
-                        acc_rec[k] += 1
-                    exit_count[k] += 1 # keeps track of number of exits per gate
+                        acc_rec[l] += 1
+                    exit_count[l] += 1 # keeps track of number of exits per gate
                     has_exited = True # keep on looping but only for computing correct_all
         acc_all, sample_all = 0, 0
         if temp is None:
@@ -288,33 +293,37 @@ class Tester(object):
         else:
             cal_logits = stolen_calibrate(gated_logits, targets, temp=temp)
 
-        alphas = [0.01, 0.015, 0.02, 0.025, 0.03, 0.035, 0.04, 0.045, 0.05]
-
-        if qhats is None:
-            qhats = []
-            for alpha_conf in alphas:
-                score = compute_detached_score(gated_logits, targets)
-                q_level = np.ceil((n_sample+1)*(1-alpha_conf))/n_sample
-                qhat = np.quantile(score, q_level, method='higher')
-                qhats.append(qhat)
-            metrics_dict['qhats'] = qhats
+        sample_exit_map = np.array(sample_exit_map)
+        gated_score = compute_detached_score(gated_logits, targets)
+        scores_per_gates = []
+        all_score_per_gates = []
+        for l in range(n_stage):
+            all_score_per_gate = compute_detached_score(logits[l, :, :], targets)
+            all_score_per_gates.append(all_score_per_gate)
+            scores_per_gates.append(np.array(all_score_per_gate)[sample_exit_map== l ])
         
-        elif qhats is not None:
-            for i, qhat in enumerate(qhats):
-                alpha = alphas[i]
-                gated_prob = torch.softmax(gated_logits, dim=1)
-                gated_prediction_sets = gated_prob >= (1-qhat)
-                gated_average_inef = np.mean(np.sum(free(gated_prediction_sets.float()), axis=1))
-                in_gated_conf = gated_prediction_sets[np.arange(n_sample),free(targets)]
-                gated_average_cov = np.mean(free(in_gated_conf))
-                metrics_dict['C_'+str(alpha)] = gated_average_inef
-                metrics_dict['cov_'+str(alpha)] = gated_average_cov*100.0
+        if alpha_qhat_dict is None:
+            alpha_qhat_dict = compute_conf_threshold(gated_score, scores_per_gates, all_score_per_gates)
+            metrics_dict['alpha_qhat_dict'] = alpha_qhat_dict
+        elif alpha_qhat_dict is not None:
+             # we compute the prediction set from a single threshold computed on all the outputs, regardless of the gate
+           
+            dict_sets = early_exit_conf_sets(alpha_qhat_dict, sample_exit_map, logits, gated_logits)
+            
+            for type_of_sets, conf_sets_dict in dict_sets.items(): #we use different strategies to build the conformal sets.
+                
+                for alpha, conf_sets  in conf_sets_dict.items():
+                    C, emp_alpha = compute_coverage_and_inef(conf_sets, targets.int())
+                    metrics_dict['test/'+type_of_sets+'_C_'+str(alpha)] = C
+                    metrics_dict['test/'+type_of_sets+'_emp_alpha_'+str(alpha)] = emp_alpha
+            
+        
         _, _, ece, _, _ = compute_detached_uncertainty_metrics(cal_logits, targets)
-        for k in range(n_stage):
-            _t = exit_count[k] * 1.0 / n_sample
-            sample_all += exit_count[k]
-            expected_flops += _t * flops[k]
-            acc_all += acc_rec[k]
+        for l in range(n_stage):
+            _t = exit_count[l] * 1.0 / n_sample
+            sample_all += exit_count[l]
+            expected_flops += _t * flops[l]
+            acc_all += acc_rec[l]
         exit_rate = []
         for i in range(n_stage):
             acc_gated.append((acc_rec[i] / exit_count[i] * 100).item())
@@ -329,6 +338,7 @@ class Tester(object):
         metrics_dict['ECE'] = ece*100.0
         metrics_dict['temp'] = temp
         return metrics_dict
+
 
 def load_model_from_checkpoint(arch, checkpoint_path, device, num_classes, img_size, G):
     checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))

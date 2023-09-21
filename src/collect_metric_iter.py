@@ -1,6 +1,7 @@
 # Training
 
-from models.t2t_vit import TrainingPhase
+
+from conformal_eedn import compute_coverage_and_inef
 from plotting_util import generate_thresholding_plots
 import torch
 
@@ -101,8 +102,10 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
         metrics_to_aggregate_dict['final_pow_entropy'] = (entropy_pow, batch_size)
         metrics_to_aggregate_dict['final_margins'] = (margins, batch_size)
         metrics_to_aggregate_dict['final_ece'] = (average_ece*batch_size*100.0, batch_size)
-        metrics_to_aggregate_dict['final_score'] = (score, batch_size)
-
+        metrics_to_aggregate_dict['all_final_score'] = (score, batch_size)
+        if 'sample_exit_level_map' in things_of_interest:
+                score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == gates_count)]
+                metrics_to_aggregate_dict['score_per_final_gate'] = (list(score_filtered), batch_size)
     if 'intermediate_logits' in things_of_interest:
         intermediate_logits = things_of_interest['intermediate_logits'] 
 
@@ -112,7 +115,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
         correct_class_cheating = torch.full(shape_of_correct,False).to(pred_final_head.device)
         
         entries = ['ens_correct_per_gate','correct_per_gate', 'correct_cheating_per_gate','list_correct_per_gate','margins_per_gate',
-        'p_max_per_gate','entropy_per_gate','pow_entropy_per_gate','ece_per_gate','score_per_gate']
+        'p_max_per_gate','entropy_per_gate','pow_entropy_per_gate','ece_per_gate','score_per_gate', 'all_score_per_gate']
         for entry in entries:
             metrics_to_aggregate_dict[entry] = ([0 for _ in range(gates_count)], batch_size)
         for g in range(gates_count):
@@ -153,43 +156,26 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
             if 'sample_exit_level_map' in things_of_interest:
                 score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == g)]
                 metrics_to_aggregate_dict['score_per_gate'][0][g] = list(score_filtered)
-            else:
-                metrics_to_aggregate_dict['score_per_gate'][0][g] = score
+            
+            metrics_to_aggregate_dict['all_score_per_gate'][0][g] = score
 
         correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
         metrics_to_aggregate_dict['cheating_correct'] = (correct_class_cheating.sum().item(), batch_size)
-        # TODO the ensembling
-    if 'gated_prediction_sets' in things_of_interest:
-        gated_prediction_sets_dict = things_of_interest['gated_prediction_sets']
-        for alpha, gated_prediction_sets in gated_prediction_sets_dict.items():
-            C = np.sum(free(gated_prediction_sets.float()))
-            in_gated_conf = gated_prediction_sets[np.arange(batch_size),targets]
-            cov = free(torch.sum(in_gated_conf))
-            metrics_to_aggregate_dict['C_'+str(alpha)] = (C, batch_size)
-            metrics_to_aggregate_dict['cov_'+str(alpha)] = (cov, batch_size)
-    if 'prediction_sets_per_gate' in things_of_interest:
-        prediction_sets_per_gate_dict = things_of_interest['prediction_sets_per_gate']
-        for alpha, prediction_sets_per_gate in prediction_sets_per_gate_dict.items():
-            C_per_gate = np.array([np.sum(free(pre),axis=1) for pre in prediction_sets_per_gate])
-            tighter_intervals = np.argmin(C_per_gate, axis=0)
-            intervals = np.array([free(pre) for pre in prediction_sets_per_gate])
-            tight_prediction_sets = []
-            for i, tighter_interval in enumerate(tighter_intervals):
-                tight_prediction_sets.append(intervals[tighter_interval, i])
-            tight_prediction_sets = np.array(tight_prediction_sets)
-            C = np.sum(tight_prediction_sets)
-            in_gated_conf = tight_prediction_sets[np.arange(batch_size),free(targets)]
-            cov = np.sum(in_gated_conf)
-            metrics_to_aggregate_dict['tight_C_'+str(alpha)] = (C, batch_size)
-            metrics_to_aggregate_dict['tight_cov_'+str(alpha)] = (cov, batch_size)
-    if 'general_prediction_sets' in things_of_interest:
-        general_prediction_sets_dict = things_of_interest['general_prediction_sets']
-        for alpha, general_prediction_sets in general_prediction_sets_dict.items():
-            C = np.sum(free(general_prediction_sets.float()))
-            in_general_conf = general_prediction_sets[np.arange(batch_size),targets]
-            cov = free(torch.sum(in_general_conf))
-            metrics_to_aggregate_dict['gen_C_'+str(alpha)] = (C, batch_size)
-            metrics_to_aggregate_dict['gen_cov_'+str(alpha)] = (cov, batch_size)
+      
+    if 'sets_general' in things_of_interest: # 
+
+        keys_sets = ['sets_general','sets_gated','sets_gated_all','sets_gated_strict'  ]
+        for type_of_sets in keys_sets: #we use different strategies to build the conformal sets.
+            conf_sets_dict = things_of_interest[type_of_sets]
+            for alpha, conf_sets  in conf_sets_dict.items():
+                C, emp_alpha = compute_coverage_and_inef(conf_sets, targets)
+                summed_C = C * batch_size
+                summed_alpha = emp_alpha * batch_size
+
+                metrics_to_aggregate_dict[type_of_sets+'_C_'+str(alpha)] = (summed_C, batch_size)
+                metrics_to_aggregate_dict[type_of_sets+'_emp_alpha_'+str(alpha)] = (summed_alpha, batch_size)
+       
+
 
     if 'gated_y_logits' in things_of_interest:
         gated_y_logits = things_of_interest['gated_y_logits']
