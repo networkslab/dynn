@@ -27,6 +27,9 @@ from models.weighted_t2t_vit import WeightedT2tVit
 from models.weighted.wpn import MLP_tanh
 from models.t2t_vit import GateTrainingScheme, GateSelectionMode, TrainingPhase
 
+from datetime import datetime
+
+now = datetime.now() # current date and time
 parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
@@ -88,7 +91,8 @@ if args.use_mlflow:
     if args.barely_train:
         experiment_name = 'test_run'    
     else:
-        experiment_name = 'conf'
+        #experiment_name = now.strftime("%m-%d-%Y")
+        experiment_name = 'longer_svhn'
     setup_mlflow(name, cfg, experiment_name=experiment_name)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -119,8 +123,10 @@ elif args.dataset=='svhn':
     IMG_SIZE = 32
     args.G = 6
     train_loader, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch, val_size=5000)
-    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
-                            map_location=torch.device(device))
+    # checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
+    #                          map_location=torch.device(device)) # less trained point
+    checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.90.pth'),
+                            map_location=torch.device(device)) # more trained point
 transformer_layer_gating = [g for g in range(args.G)]
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
@@ -224,8 +230,7 @@ else:
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
     max_warmup_epoch = args.num_epoch // 2
-    if args.dataset == 'svhn':
-        max_warmup_epoch = 5
+    
     for warmup_epoch in range(max_warmup_epoch):
         train_single_epoch(args, learning_helper, device,
                            train_loader, val_loader, epoch=warmup_epoch, training_phase=TrainingPhase.WARMUP,

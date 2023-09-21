@@ -6,6 +6,7 @@ import mlflow
 from timm.models import *
 from timm.models import create_model
 from collect_metric_iter import aggregate_metrics, process_things
+from conformal_eedn import compute_conf_threshold
 from data_loading.data_loader_helper import get_path_to_project_root, split_dataloader_in_n
 from learning_helper import LearningHelper
 from log_helper import log_aggregate_metrics_mlflow
@@ -232,43 +233,19 @@ def set_from_validation(learning_helper, val_metrics_dict, freeze_classifier_wit
 
     ## compute the quantiles for the conformal intervals
     
-    score, n = val_metrics_dict['gated_score']
-    alpha_confs = [0.01,0.015,0.02,0.025,0.03,0.035,0.04,0.045,0.05]
-    alpha_qhat_dict = {}
-    for alpha_conf in alpha_confs:
-        q_level = np.ceil((n+1)*(1-alpha_conf))/n
-        qhat_general = np.quantile(score, q_level, method='higher')
-        
-        scores_per_gate, n = val_metrics_dict['score_per_gate']
-        qhats = []
-        for scores_in_l in scores_per_gate:
-            if len(scores_in_l) > 10 :
-                q_level = np.ceil((n+1)*(1-alpha_conf))/n
-                qhat = np.quantile(scores_in_l, q_level, method='higher')
-            else:
-                qhat = qhat_general
-            qhats.append(qhat)
-        # add the last one
-        final_score, n = val_metrics_dict['final_score']
-        q_level = np.ceil((n+1)*(1-alpha_conf))/n
-        qhat = np.quantile(final_score, q_level, method='higher')
-        qhats.append(qhat)
-        alpha_qhat_dict[alpha_conf] = {'qhats':qhats, 'qhat':qhat}
+    mixed_score, n = val_metrics_dict['gated_score']
+    scores_per_gate, n = val_metrics_dict['score_per_gate']
+    score_per_final_gate, n = val_metrics_dict['score_per_final_gate']
+
+    all_score_per_gates, n = val_metrics_dict['all_score_per_gate']
+    all_final_score, n = val_metrics_dict['all_final_score']
+
+    alpha_qhat_dict = compute_conf_threshold(mixed_score, scores_per_gate+[score_per_final_gate], all_score_per_gates+[all_final_score])
+    
 
     learning_helper.classifier_training_helper.set_conf_thresholds(alpha_qhat_dict)
    
 
-    #learning_helper.gate_training_helper.set_ratios(pos_weights)
-    # TODO add metric for validation and early stopping
-    # if freeze_classifier_with_val:
-    #     for idx in range(args.G):
-    #         classifier_accuracy = compute_gated_accuracy(stored_metrics_classifier, idx)
-    #         accuracy_tracker = net.module.accuracy_trackers[idx]
-    #         if accuracy_tracker.should_freeze(classifier_accuracy):
-    #             net.module.freeze_intermediate_classifier(idx)
-    #             print(f"FREEZING CLASSIFIER {idx}")
-    #         else:
-    #             accuracy_tracker.insert_acc(classifier_accuracy)
 
 def eval_baseline(args, helper: LearningHelper, val_loader, device, epoch, mode: str):
     helper.net.eval()
