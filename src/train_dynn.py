@@ -105,7 +105,7 @@ model = args.arch
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
-    max_warmup_epoch = 2
+    max_warmup_epoch = 3
     train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch,
                                                     test_batch_size=args.batch, val_size=5000)
     if 't2t_vit_14' in args.arch:
