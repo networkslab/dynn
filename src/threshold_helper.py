@@ -13,7 +13,7 @@ def aggregate_logits_targets(loader, helper: LearningHelper, device):
     all_preds = []
     for _, (inputs, targets) in enumerate(loader):
         inputs, targets = inputs.to(device), targets.to(device)
-        _, things_of_interest = helper.get_warmup_loss(inputs, targets)
+        _, things_of_interest, _ = helper.get_warmup_loss(inputs, targets)
         logits_per_gates = things_of_interest['intermediate_logits']+ [things_of_interest['final_logits']]
         all_preds.append(torch.stack(logits_per_gates))
         all_targets.append(targets)

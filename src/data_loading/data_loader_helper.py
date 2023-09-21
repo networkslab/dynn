@@ -68,7 +68,7 @@ def split_dataloader_in_n(data_loader, n):
         n_loaders.append(sub_loader)
     return n_loaders
     
-def get_cifar_100_dataloaders(img_size = 32, train_batch_size = 64, test_batch_size = 100, val_size = 0):
+def get_cifar_100_dataloaders(img_size = 224, train_batch_size = 64, test_batch_size = 100, val_size = 0):
     transform_train = transforms.Compose([
         transforms.Resize(img_size),
         transforms.RandomCrop(img_size, padding=(img_size//8)),

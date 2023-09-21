@@ -17,7 +17,7 @@ from log_helper import setup_mlflow
 from models.classifier_training_helper import LossContributionMode
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
-from our_train_helper import set_from_validation, evaluate, train_single_epoch
+from our_train_helper import set_from_validation, evaluate, train_single_epoch, eval_baseline
 from weighted_training_helper import train_weighted_net
 from threshold_helper import fixed_threshold_test
 from utils import fix_the_seed, save_dynn_checkpoint
@@ -55,6 +55,7 @@ parser.add_argument('--proj_dim',default=32,help='Target dimension of random pro
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True, help='Store the run with mlflow')
 parser.add_argument('--classifier_loss', type=LossContributionMode, default=LossContributionMode.BOOSTED, choices=LossContributionMode)
+parser.add_argument('--early_exit_warmup', default=True)
 # WEIGHTED BASELINE SPECIFIC ARGUMENTS
 parser.add_argument('--meta_net_hidden_size',default=500, help='Width of the hidden size of the weight prediction network')
 parser.add_argument('--meta_net_num_layers',default=1, help='Number of layers of wpn')
@@ -145,7 +146,7 @@ if not isinstance(net, Boosted_T2T_ViT) and not 'weighted' in args.arch:
     net.set_learnable_gates(device,
                             transformer_layer_gating,
                             direct_exit_prob_param=True,
-                            gate_type=args.gate,
+                            gate_type=GateType.IDENTITY if 'baseline' in args.arch else args.gate,
                             proj_dim=int(args.proj_dim),
                             num_proj=int(args.num_proj))
 
@@ -195,12 +196,15 @@ if isinstance(net.module, Boosted_T2T_ViT):
         scheduler.step()
 
 elif 'baseline' in args.arch: # only training with warmup
+    args.early_exit_warmup = False # we don't want to freeze classifiers.
     learning_helper = LearningHelper(net, optimizer, args, device)
-    
+    best_acc_last_inter_head = 0
     for epoch in range(0, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
-        #stored_metrics_test = evaluate(best_acc, args, learning_helper, device, test_loader, epoch)
-        fixed_threshold_test(args,learning_helper, device, test_loader, val_loader)
+        train_single_epoch(args, learning_helper, device, train_loader, val_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
+        val_metrics_dict, _= eval_baseline(args, learning_helper, val_loader, device, epoch, 'val')
+        correct_per_gate, total_num_samples = val_metrics_dict['correct_per_gate']
+        acc_first_inter_head = correct_per_gate[0] / total_num_samples
+        save_dynn_checkpoint(net, f'checkpoint_{args.dataset}_{args.arch}', f'ckpt_ep{epoch}_first_acc_{acc_first_inter_head}.pth')
         scheduler.step()
 elif 'weighted' in args.arch: # stupid python issue i don't wanna deal with now https://stackoverflow.com/questions/10582774/python-why-can-isinstance-return-false-when-it-should-return-true
     # First create the weight prediction network, meta_net
@@ -219,17 +223,24 @@ else:
     best_acc = 0
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
-    num_warmup_epoch = 1
+    max_warmup_epoch = args.num_epoch // 2
     if args.dataset == 'svhn':
-        num_warmup_epoch = 5
-    for epoch in range(num_warmup_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
-        val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=epoch, mode='val', experiment_name=experiment_name)
+        max_warmup_epoch = 5
+    for warmup_epoch in range(max_warmup_epoch):
+        train_single_epoch(args, learning_helper, device,
+                           train_loader, val_loader, epoch=warmup_epoch, training_phase=TrainingPhase.WARMUP,
+                           bilevel_batch_count=args.bilevel_batch_count)
+        val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=warmup_epoch, mode='val', experiment_name=experiment_name)
         #set_from_validation(learning_helper, val_metrics_dict)
-        evaluate(best_acc, args, learning_helper, device, test_loader, epoch=epoch, mode='test', experiment_name=experiment_name)
-    
-    for epoch in range(num_warmup_epoch, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
+        evaluate(best_acc, args, learning_helper, device, test_loader, epoch=warmup_epoch, mode='test', experiment_name=experiment_name)
+        if net.module.are_all_classifiers_frozen():
+            print(f"Stopping warmup after {warmup_epoch} epochs")
+            break
+    # Unfreeze all classifiers after warmup
+    print("Unfreezing classifiers after warmup")
+    net.module.unfreeze_all_intermediate_classifiers()
+    for epoch in range(warmup_epoch + 1, args.num_epoch):
+        train_single_epoch(args, learning_helper, device, train_loader, val_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
         
         val_metrics_dict, new_best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, mode='val', experiment_name=experiment_name)
         if new_best_acc > best_acc: 
