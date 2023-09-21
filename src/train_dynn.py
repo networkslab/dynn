@@ -134,7 +134,7 @@ elif args.dataset=='cifar100':
 elif args.dataset=='svhn':
     NUM_CLASSES = 10
     IMG_SIZE = 32
-    max_warmup_epoch = 5
+    max_warmup_epoch = 6
     train_loader, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch, val_size=5000)
     # checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
     #                          map_location=torch.device(device)) # less trained point
