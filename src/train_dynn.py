@@ -134,7 +134,7 @@ elif args.dataset=='cifar100':
 elif args.dataset=='svhn':
     NUM_CLASSES = 10
     IMG_SIZE = 32
-    max_warmup_epoch = 5
+    max_warmup_epoch = 7
     train_loader, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch, val_size=5000)
     # checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
     #                          map_location=torch.device(device)) # less trained point
@@ -261,7 +261,7 @@ else:
     print("Unfreezing classifiers after warmup")
     net.module.unfreeze_all_intermediate_classifiers()
     for epoch in range(warmup_epoch + 1, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, val_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
         
         val_metrics_dict, new_best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, mode='val', experiment_name=experiment_name)
         if new_best_acc > best_acc: 
