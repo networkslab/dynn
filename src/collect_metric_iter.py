@@ -89,7 +89,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
     """
     
     metrics_to_aggregate_dict = {} # each entry has the format = (value, batch_size)
-    if  'final_logits' in    things_of_interest: 
+    if 'final_logits' in things_of_interest:
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
         metrics_to_aggregate_dict['correct'+str(gates_count)] = (pred_final_head.eq(targets).sum().item(), batch_size)
