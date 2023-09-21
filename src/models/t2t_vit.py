@@ -23,6 +23,7 @@ from .custom_modules.custom_GELU import CustomGELU
 from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
 from .custom_modules.learnable_code_gate import LearnableCodeGate
 from .custom_modules.learnable_complex_gate import LearnableComplexGate
+from .custom_modules.identity_gate import IdentityGate
 from .gate_training_helper import GateTrainingScheme
 from .classifier_training_helper import GateSelectionMode
 from sklearn.metrics import accuracy_score
@@ -172,7 +173,6 @@ class T2T_ViT(nn.Module):
     '''
     def set_intermediate_heads(self, intermediate_head_positions):
         self.intermediate_head_positions = intermediate_head_positions
-        self.cost_per_gate = [(i+1)/len(self.intermediate_head_positions) for i in range(len(self.intermediate_head_positions))]
 
         self.intermediate_heads = nn.ModuleList([
             nn.Linear(self.embed_dim, self.num_classes) if self.num_classes > 0 else nn.Identity()
@@ -186,9 +186,31 @@ class T2T_ViT(nn.Module):
         for param in classifier.parameters():
             param.requires_grad = False
 
+    def unfreeze_intermediate_classifier(self, classifier_idx):
+        classifier = self.intermediate_heads[classifier_idx]
+        for param in classifier.parameters():
+            param.requires_grad = True
+
+    def unfreeze_all_intermediate_classifiers(self):
+        for inter_head in self.intermediate_heads:
+            for param in inter_head.parameters():
+                param.requires_grad = True
+    def set_cost_per_exit(self, mult_add_at_exits: list[float], scale = 1e6):
+        normalized_cost = torch.tensor(mult_add_at_exits) / mult_add_at_exits[-1]
+        self.mult_add_at_exits = (torch.tensor(mult_add_at_exits) / scale).tolist()
+        self.normalized_cost_per_exit = normalized_cost.tolist()
+
     def are_all_classifiers_frozen(self):
-        for i in range(len(self.accuracy_trackers)):
-            if not self.accuracy_trackers[i].frozen:
+        for inter_head in self.intermediate_heads:
+            for param in inter_head.parameters():
+                if param.requires_grad:
+                    return False
+        return True
+
+    def is_classifier_frozen(self, classifier_idx):
+        inter_head = self.intermediate_heads[classifier_idx]
+        for param in inter_head.parameters():
+            if param.requires_grad:
                 return False
         return True
 
@@ -211,7 +233,8 @@ class T2T_ViT(nn.Module):
         elif gate_type == GateType.CODE_AND_UNC:
             self.gates = nn.ModuleList([
                 LearnableComplexGate(device, input_dim=input_dim_code, proj_dim=proj_dim, num_proj=num_proj) for _ in range(len(self.gate_positions))])
-        
+        elif gate_type == GateType.IDENTITY:
+            self.gates = nn.ModuleList([IdentityGate() for _ in range(len(self.gate_positions))])
 
     def get_gate_prediction(self, l, current_logits, intermediate_codes):
         if self.gate_type == GateType.UNCERTAINTY:
@@ -271,3 +294,29 @@ class T2T_ViT(nn.Module):
         # The intermediate outs are unnormalized
         return x, intermediate_logits, intermediate_codes
 
+    # The above forward during training goes through the whole network and gathers intermediate representations for the full
+    # network before actually passing those through the heads.
+    # At inference we'd actually want to do layer --> head --> gate repeat.
+    def forward_for_inference(self, x):
+        B = x.shape[0]
+        x = self.tokens_to_token(x)
+        cls_tokens = self.cls_token.expand(B, -1, -1)
+        x = torch.cat((cls_tokens, x), dim=1)
+        x = x + self.pos_embed
+        x = self.pos_drop(x)
+        intermediate_z = [] # the embedding fed into the augmenting classifiers
+        intermediate_codes = []
+        intermediate_logits = []
+        for blk_idx, blk in enumerate(self.blocks):
+            x, act_code = blk.forward_get_code(x)
+            if hasattr(self, 'intermediate_head_positions') and blk_idx in self.intermediate_head_positions:
+                inter_z = self.norm(x)[:, 0]
+                intermediate_z.append(inter_z)
+                intermediate_codes.append(act_code)
+                intermediate_head = self.intermediate_heads[blk_idx]
+                inter_logits = intermediate_head(inter_z)
+                intermediate_logits.append(inter_logits)
+                self.gates[blk_idx](inter_logits) if hasattr(self, 'gates') else 0
+        x = self.norm(x)
+        x = self.head(x[:, 0])
+        return x, intermediate_z

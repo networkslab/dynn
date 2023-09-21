@@ -13,7 +13,7 @@ def aggregate_logits_targets(loader, helper: LearningHelper, device):
     all_preds = []
     for _, (inputs, targets) in enumerate(loader):
         inputs, targets = inputs.to(device), targets.to(device)
-        _, things_of_interest = helper.get_warmup_loss(inputs, targets)
+        _, things_of_interest, _ = helper.get_warmup_loss(inputs, targets)
         logits_per_gates = things_of_interest['intermediate_logits']+ [things_of_interest['final_logits']]
         all_preds.append(torch.stack(logits_per_gates))
         all_targets.append(targets)
@@ -24,10 +24,7 @@ def fixed_threshold_test(args, helper: LearningHelper, device, test_loader, val_
     val_pred, val_target = aggregate_logits_targets(val_loader, helper, device)
     test_pred, test_target = aggregate_logits_targets(test_loader, helper, device)
 
-    COST_PER_LAYER = 1.0/7 * 100
-    costs_at_exit = [COST_PER_LAYER * (i + 1) for i in range(7)]
-
-    
+    costs_at_exit = helper.net.module.normalized_cost_per_exit
 
     costs = []
     accs = []

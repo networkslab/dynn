@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from enum import Enum
 
+from conformal_eedn import early_exit_conf_sets
+
 class GateSelectionMode(Enum):
     PROBABILISTIC = 'prob'
     DETERMINISTIC = 'det'
@@ -11,6 +13,7 @@ class LossContributionMode(Enum):
     SINGLE = 'single' # a sample contributes to the loss at a single classifier
     WEIGHTED = 'weighted'
     BOOSTED = 'boosted'
+
 
 class InvalidLossContributionModeException(Exception):
     pass
@@ -135,23 +138,9 @@ class ClassifierTrainingHelper:
         if self.alpha_qhat_dict is not None:
             # we compute the prediction set from a single threshold computed on all the outputs, regardless of the gate
             gated_logits = things_of_interest['gated_y_logits']
-            gated_prob = torch.nn.functional.softmax(gated_logits, dim=1)
-            things_of_interest['general_prediction_sets'] = {}
-            for alpha, dict_qhats in self.alpha_qhat_dict.items():
-
-                gated_prediction_sets = gated_prob >= (1-dict_qhats['qhat'])
-                things_of_interest['general_prediction_sets'][alpha] = gated_prediction_sets
-        
-       
-            # we compute the prediction set from the threshold associated to the gate
             sample_exit_level_map = things_of_interest['sample_exit_level_map']
             all_logits = things_of_interest['intermediate_logits'] + [things_of_interest['final_logits']]
-            things_of_interest['gated_prediction_sets'] = {}
-            for alpha, dict_qhats in self.alpha_qhat_dict.items():
-                gated_prediction_sets = torch.zeros_like(all_logits[0]).bool()
-                for l, conf_thresh  in enumerate(dict_qhats['qhats']):
-                    prob_at_l = torch.nn.functional.softmax(all_logits[l], dim=1)
-                    exited_prob_at_l = prob_at_l[sample_exit_level_map == l]
-                    gated_prediction_sets[sample_exit_level_map == l] = exited_prob_at_l >= (1-conf_thresh)
-                things_of_interest['gated_prediction_sets'][alpha] = gated_prediction_sets
+            dict_sets = early_exit_conf_sets(self.alpha_qhat_dict, sample_exit_level_map, all_logits, gated_logits)
+            things_of_interest = dict_sets | things_of_interest
         return things_of_interest
+
