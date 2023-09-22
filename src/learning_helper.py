@@ -47,15 +47,14 @@ class LearningHelper:
         self.optimizer.zero_grad()
         final_logits, intermediate_logits, _ = self.net(inputs)
         loss = criterion(final_logits, targets)  # the grad_fn of this loss should be None if frozen
-        intermediate_losses = []
-        for intermediate_logit in intermediate_logits:
+        num_gates = len(intermediate_logits)+1
+        for l, intermediate_logit in enumerate(intermediate_logits):
             intermediate_loss = criterion(intermediate_logit, targets)
-            loss += intermediate_loss
-            intermediate_losses.append(intermediate_loss)
+            loss += (num_gates - l)*intermediate_loss # we scale the gradient by G-l => early gates have bigger gradient
         things_of_interest = {
             'intermediate_logits': intermediate_logits,
             'final_logits': final_logits}
-        return loss, things_of_interest, intermediate_losses
+        return loss, things_of_interest
 
 def freeze_backbone(network, excluded_submodules: list[str]):
     model_parameters = filter(lambda p: p.requires_grad, network.parameters())

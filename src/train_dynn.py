@@ -11,7 +11,7 @@ from thop import profile
 from models.op_counter import measure_model_and_assign_cost_per_exit
 from timm.models import create_model
 from boosted_training_helper import test_boosted, train_boosted
-from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders, get_svhn_dataloaders
+from data_loading.data_loader_helper import get_abs_path, get_cifar_100LT_dataloaders, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders, get_svhn_dataloaders
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 from log_helper import setup_mlflow
 from models.classifier_training_helper import LossContributionMode
@@ -40,7 +40,7 @@ parser.add_argument('--arch', type=str,
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
-parser.add_argument('--dataset',type=str,default='cifar100', choices=['cifar10', 'cifar100', 'svhn'])
+parser.add_argument('--dataset',type=str,default='cifar100', choices=['cifar10', 'cifar100', 'svhn', 'cifar100LT'])
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.7,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--num_epoch', default=15, type=int, help='num of epochs')
@@ -91,8 +91,8 @@ if args.use_mlflow:
     if args.barely_train:
         experiment_name = 'test_run'    
     else:
-        #experiment_name = now.strftime("%m-%d-%Y")
-        experiment_name = 'longer_svhn'
+        experiment_name = now.strftime("%m-%d-%Y")
+        #experiment_name = 'longer_svhn'
     setup_mlflow(name, cfg, experiment_name=experiment_name)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -109,10 +109,11 @@ if args.dataset=='cifar10':
     train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch,
                                                     test_batch_size=args.batch, val_size=5000)
     if 't2t_vit_14' in args.arch:
-        # checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_14/cifar10_t2t-vit_14_98.3.pth'),
-        #                 map_location=torch.device(device))
-        print('this needs to be retrained')
+        max_warmup_epoch = 1
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_14/ckpt_0.01_0.0005_96.35.pth'),
+                        map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
+        max_warmup_epoch = 3
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
     
@@ -122,19 +123,36 @@ elif args.dataset=='cifar100':
     
     train_loader, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     if 't2t_vit_14' in args.arch:
-        
+        max_warmup_epoch = 1
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                             map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
+        max_warmup_epoch = 3
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100_t2t_vit_7/ckpt_0.01_0.0005_78.97.pth'),
                             map_location=torch.device(device))
+
+elif args.dataset=='cifar100LT':
+    NUM_CLASSES = 100
+    IMG_SIZE = 224
+    
+    train_loader, val_loader, test_loader = get_cifar_100LT_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
+    if 't2t_vit_14' in args.arch:
+        max_warmup_epoch = 1
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100LT_t2t_vit_14/ckpt_0.01_0.0005_87.70.pth'),
+                            map_location=torch.device(device))
+    elif 't2t_vit_7' in args.arch:
+        max_warmup_epoch = 3
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100LT_t2t_vit_7/ckpt_0.01_0.0005_81.56.pth'),
+                            map_location=torch.device(device))
+
+
 
 
 
 elif args.dataset=='svhn':
     NUM_CLASSES = 10
     IMG_SIZE = 32
-    
+    max_warmup_epoch = 6
     train_loader, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch, val_size=5000)
     # checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
     #                          map_location=torch.device(device)) # less trained point
@@ -246,11 +264,10 @@ else:
     best_acc = 0
     # start with warm up for the first epoch
     learning_helper = LearningHelper(net, optimizer, args, device)
-    max_warmup_epoch = args.num_epoch // 2
     
     for warmup_epoch in range(max_warmup_epoch):
         train_single_epoch(args, learning_helper, device,
-                           train_loader, val_loader, epoch=warmup_epoch, training_phase=TrainingPhase.WARMUP,
+                           train_loader, epoch=warmup_epoch, training_phase=TrainingPhase.WARMUP,
                            bilevel_batch_count=args.bilevel_batch_count)
         val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=warmup_epoch, mode='val', experiment_name=experiment_name)
         #set_from_validation(learning_helper, val_metrics_dict)
@@ -262,7 +279,7 @@ else:
     print("Unfreezing classifiers after warmup")
     net.module.unfreeze_all_intermediate_classifiers()
     for epoch in range(warmup_epoch + 1, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, val_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
+        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
         
         val_metrics_dict, new_best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, mode='val', experiment_name=experiment_name)
         if new_best_acc > best_acc: 

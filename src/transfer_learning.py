@@ -12,8 +12,6 @@ import mlflow
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 
-import torchvision
-import torchvision.transforms as transforms
 from timm.models import *
 from timm.models import create_model
 from data_loading.data_loader_helper import get_cifar_100LT_dataloaders, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_svhn_dataloaders, get_abs_path
@@ -188,7 +186,7 @@ def test(epoch):
             'epoch': epoch,
         }
         checkpoint_folder_path = get_abs_path(["checkpoint"])
-        target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_{MODEL}'
+        target_checkpoint_folder_path = f'{checkpoint_folder_path}/checkpoint_{args.dataset}_{args.arch}'
         if not os.path.isdir(target_checkpoint_folder_path):
             os.mkdir(target_checkpoint_folder_path)
         torch.save(state, f'{target_checkpoint_folder_path}/ckpt_{args.lr}_{args.wd}_{acc}.pth')

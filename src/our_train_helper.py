@@ -30,67 +30,19 @@ def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
     elif training_phase == TrainingPhase.GATE:
         progress_bar(step, total, 'Gate Loss: %.3f ' % (loss)) 
 
-def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_loader, epoch, training_phase,
+def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch, training_phase,
           bilevel_batch_count=20):
     print('\nEpoch: %d' % epoch)
-    VAL_WARMUP_PATIENCE = 100
-    WARMUP_MOVING_AVG_WINDOW = 10 # average 20 batches.
-
     helper.net.train()
-    highest_avg_val_accs = [-1 for _ in range(args.G)]
-    moving_avg_accs = [torch.zeros(WARMUP_MOVING_AVG_WINDOW) for _ in range(args.G)]
-    decrease_avg_val_acc_counter = [0 for _ in range(args.G)]
+
     metrics_dict = {}
-    for batch_idx, (train_samples, val_samples) in enumerate(zip(train_loader, itertools.cycle(val_loader))):
-        train_inputs = train_samples[0]
-        train_targets = train_samples[1]
-        train_inputs, train_targets = train_inputs.to(device), train_targets.to(device)
-        batch_size = train_targets.size(0)
+    for batch_idx, (inputs, targets) in enumerate(train_loader):
+        inputs, targets = inputs.to(device), targets.to(device)
+        batch_size = targets.size(0)
        
         if training_phase == TrainingPhase.WARMUP:
             #  we compute the warmup loss
-            loss, things_of_interest, _ = helper.get_warmup_loss(train_inputs, train_targets)
-            if helper.early_exit_warmup:
-
-                val_inputs = val_samples[0]
-                val_targets = val_samples[1]
-                val_inputs, val_targets = val_inputs.to(device), val_targets.to(device)
-                val_loss, things_of_interest_val, intermediate_losses = helper.get_warmup_loss(val_inputs, val_targets)
-                intermediate_losses = list(map(lambda l: l.item(), intermediate_losses))
-                log_dict_val_metrics = {f"warmup/val_loss_{idx}": val for (idx, val) in enumerate(intermediate_losses)}
-
-                for classifier_idx, l in enumerate(intermediate_losses):
-
-                    if val_targets.shape[0] < val_loader.batch_size:
-                        continue
-                    if helper.net.module.is_classifier_frozen(classifier_idx): # classifier already frozen
-                        continue
-
-                    _, predicted_inter = things_of_interest_val['intermediate_logits'][classifier_idx].max(1)
-                    correct = predicted_inter.eq(val_targets)
-                    classifier_acc = torch.sum(correct) / val_loader.batch_size
-                    log_dict_val_metrics[f'warmup/val_acc_{classifier_idx}'] = classifier_acc.item()
-
-                    moving_avg_acc = moving_avg_accs[classifier_idx]
-                    moving_avg_acc[batch_idx % WARMUP_MOVING_AVG_WINDOW] = classifier_acc
-                    avg_acc = torch.mean(moving_avg_acc)
-                    log_dict_val_metrics[f'warmup/avg_val_acc_{WARMUP_MOVING_AVG_WINDOW}_{classifier_idx}'] = avg_acc.item()
-                    highest_avg_val_acc = highest_avg_val_accs[classifier_idx]
-                    if avg_acc > highest_avg_val_acc:
-                        highest_avg_val_accs[classifier_idx] = avg_acc
-                        decrease_avg_val_acc_counter[classifier_idx] = 0
-                    else: # decrease in avg classifier accuracy
-                        decrease_avg_val_acc_counter[classifier_idx] += 1
-                        if decrease_avg_val_acc_counter[classifier_idx] > VAL_WARMUP_PATIENCE:
-                            print(f"FREEZING CLASSIFIER {classifier_idx} AT BATCH {batch_idx}")
-                            helper.net.module.freeze_intermediate_classifier(classifier_idx)
-                if helper.net.module.are_all_classifiers_frozen():
-                    print("All classifiers are frozen in warmup, exiting")
-                    break
-
-                mlflow.log_metrics(log_dict_val_metrics,
-                                   step=batch_idx +
-                                        (epoch * len(train_loader)))
+            loss, things_of_interest = helper.get_warmup_loss(inputs, targets)
         else:
             if batch_idx % bilevel_batch_count == 0:
                 if helper.net.module.are_all_classifiers_frozen(): # no need to train classifiers anymore
@@ -99,14 +51,14 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, val_l
                 else:
                     metrics_dict = {}
                     training_phase = switch_training_phase(training_phase)
-            loss, things_of_interest = helper.get_surrogate_loss(train_inputs, train_targets, training_phase)
+            loss, things_of_interest = helper.get_surrogate_loss(inputs, targets, training_phase)
         weight_norm_metrics = get_network_weight_norm_dict(helper.net.module)
         loss.backward()
         helper.optimizer.step()
         
         # obtain the metrics associated with the batch
         metrics_of_batch = process_things(things_of_interest, gates_count=args.G,
-                                          targets=train_targets, batch_size=batch_size,
+                                          targets=targets, batch_size=batch_size,
                                           cost_per_exit=helper.net.module.normalized_cost_per_exit)
         metrics_of_batch['loss'] = (loss.item(), batch_size)
         
@@ -206,7 +158,7 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
     
     elif mode == 'test' and store_results:
         print('storing results....')
-        with open(experiment_name+'_'+args.dataset+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
+        with open(experiment_name+'_'+args.dataset+"_"+args.arch+"_"+str(args.ce_ic_tradeoff)+'_results.pk', 'wb') as file:
             pk.dump(log_dicts_of_trials, file)
     return metrics_dict, best_acc, log_dicts_of_trials
 
