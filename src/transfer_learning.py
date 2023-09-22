@@ -12,8 +12,6 @@ import mlflow
 import torch.backends.cudnn as cudnn
 import torch.optim as optim
 
-import torchvision
-import torchvision.transforms as transforms
 from timm.models import *
 from timm.models import create_model
 from data_loading.data_loader_helper import get_cifar_100LT_dataloaders, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_svhn_dataloaders, get_abs_path

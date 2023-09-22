@@ -11,7 +11,7 @@ from thop import profile
 from models.op_counter import measure_model_and_assign_cost_per_exit
 from timm.models import create_model
 from boosted_training_helper import test_boosted, train_boosted
-from data_loading.data_loader_helper import get_abs_path, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders, get_svhn_dataloaders
+from data_loading.data_loader_helper import get_abs_path, get_cifar_100LT_dataloaders, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders, get_svhn_dataloaders
 from learning_helper import freeze_backbone as freeze_backbone_helper, LearningHelper
 from log_helper import setup_mlflow
 from models.classifier_training_helper import LossContributionMode
@@ -130,6 +130,22 @@ elif args.dataset=='cifar100':
         max_warmup_epoch = 3
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100_t2t_vit_7/ckpt_0.01_0.0005_78.97.pth'),
                             map_location=torch.device(device))
+
+elif args.dataset=='cifar100LT':
+    NUM_CLASSES = 100
+    IMG_SIZE = 224
+    
+    train_loader, val_loader, test_loader = get_cifar_100LT_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
+    if 't2t_vit_14' in args.arch:
+        max_warmup_epoch = 1
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
+                            map_location=torch.device(device))
+    elif 't2t_vit_7' in args.arch:
+        max_warmup_epoch = 3
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100_t2t_vit_7/ckpt_0.01_0.0005_78.97.pth'),
+                            map_location=torch.device(device))
+
+
 
 
 
