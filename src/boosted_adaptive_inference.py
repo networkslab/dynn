@@ -404,6 +404,10 @@ def main(args):
         _, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=64, val_size=5000)
     else:
         raise 'Unsupported dataset'
+    if 't2t_vit_14' in args.arch:
+        G = 13
+    elif 't2t_vit_7' in args.arch:
+        G = 6
      # LOAD MODEL
     checkpoint_path = get_latest_checkpoint_path(checkpoint_dir)
     print(f"Loading model with checkpoint path {checkpoint_path}")
