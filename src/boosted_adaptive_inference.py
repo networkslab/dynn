@@ -14,7 +14,7 @@ import math
 import time
 from conformal_eedn import compute_conf_threshold, compute_coverage_and_inef, early_exit_conf_sets
 from log_helper import setup_mlflow
-from data_loading.data_loader_helper import get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_svhn_dataloaders, split_dataloader_in_n
+from data_loading.data_loader_helper import get_cifar_100LT_dataloaders, get_latest_checkpoint_path, get_cifar_10_dataloaders, get_cifar_100_dataloaders, get_path_to_project_root, get_svhn_dataloaders, split_dataloader_in_n
 from timm.models import *
 from models.custom_modules.gate import GateType
 from timm.models import create_model
@@ -394,6 +394,11 @@ def main(args):
         NUM_CLASSES = 100
         checkpoint_dir = f"checkpoint_cifar100_{args.arch}"
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
+        G = 13
+    elif args.dataset == 'cifar100LT':
+        NUM_CLASSES = 100
+        checkpoint_dir = f"checkpoint_cifar100LT_{args.arch}"
+        _, val_loader, test_loader = get_cifar_100LT_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
         G = 13
     elif args.dataset=='svhn':
         NUM_CLASSES = 10
