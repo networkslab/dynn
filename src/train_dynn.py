@@ -40,7 +40,7 @@ parser.add_argument('--arch', type=str,
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
-parser.add_argument('--dataset',type=str,default='cifar100', choices=['cifar10', 'cifar100', 'svhn'])
+parser.add_argument('--dataset',type=str,default='cifar100', choices=['cifar10', 'cifar100', 'svhn', 'cifar100LT'])
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.7,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--num_epoch', default=15, type=int, help='num of epochs')
