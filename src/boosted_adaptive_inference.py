@@ -387,19 +387,19 @@ def main(args):
     if args.dataset == 'cifar10':
         NUM_CLASSES = 10
         if 'weighted' in args.arch:
-            checkpoint_dir = "checkpoint_cifar10_{args.arch}_weighted"
+            checkpoint_dir = f"checkpoint_cifar10_{args.arch}_weighted"
         if 'baseline' in args.arch:
-            checkpoint_dir = "checkpoint_cifar10_{args.arch}_baseline"
+            checkpoint_dir = f"checkpoint_cifar10_{args.arch}_baseline"
         else:
-            checkpoint_dir = "checkpoint_cifar10_{args.arch}_boosted"
+            checkpoint_dir = f"checkpoint_cifar10_{args.arch}_boosted"
         _, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=5000)
         G = 6
     elif args.dataset == 'cifar100':
         NUM_CLASSES = 100
         if 'weighted' in args.arch:
-            checkpoint_dir = "checkpoint_cifar100_{args.arch}_weighted"
+            checkpoint_dir = f"checkpoint_cifar100_{args.arch}_weighted"
         else:
-            checkpoint_dir = "checkpoint_cifar100_{args.arch}_boosted"
+            checkpoint_dir = f"checkpoint_cifar100_{args.arch}_boosted"
         _, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE, train_batch_size=64, test_batch_size=64, val_size=10000)
         G = 13
     elif args.dataset=='svhn':
@@ -407,9 +407,9 @@ def main(args):
         IMG_SIZE = 32
         G = 6
         if 'weighted' in args.arch:
-            checkpoint_dir = "checkpoint_svhn_{args.arch}_weighted"
+            checkpoint_dir = f"checkpoint_svhn_{args.arch}_weighted"
         else:
-            checkpoint_dir = "checkpoint_svhn_{args.arch}_boosted"
+            checkpoint_dir = f"checkpoint_svhn_{args.arch}_boosted"
 
         
         _, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=64, val_size=5000)
