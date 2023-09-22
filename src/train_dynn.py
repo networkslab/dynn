@@ -105,41 +105,46 @@ model = args.arch
 if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
-    max_warmup_epoch = 3
+    
     train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch,
                                                     test_batch_size=args.batch, val_size=5000)
     if 't2t_vit_14' in args.arch:
+        max_warmup_epoch = 1
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_14/ckpt_0.01_0.0005_96.35.pth'),
                         map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
+        max_warmup_epoch = 3
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
     
 elif args.dataset=='cifar100':
     NUM_CLASSES = 100
     IMG_SIZE = 224
-    max_warmup_epoch = 1
+    
     train_loader, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     if 't2t_vit_14' in args.arch:
-        
+        max_warmup_epoch = 1
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                             map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
+        max_warmup_epoch = 3
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100_t2t_vit_7/ckpt_0.01_0.0005_78.97.pth'),
                             map_location=torch.device(device))
 
 elif args.dataset=='cifar100LT':
     NUM_CLASSES = 100
     IMG_SIZE = 224
-    max_warmup_epoch = 1
+    
     train_loader, val_loader, test_loader = get_cifar_100LT_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     if 't2t_vit_14' in args.arch:
-        
+        max_warmup_epoch = 1
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                             map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
+        max_warmup_epoch = 3
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100_t2t_vit_7/ckpt_0.01_0.0005_78.97.pth'),
                             map_location=torch.device(device))
+
 
 
 
