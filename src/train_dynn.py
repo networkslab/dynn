@@ -135,7 +135,7 @@ elif args.dataset=='cifar100LT':
     NUM_CLASSES = 100
     IMG_SIZE = 224
     
-    train_loader, val_loader, test_loader = get_cifar_100LT_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
+    train_loader, val_loader, test_loader = get_cifar_100LT_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=1000)
     if 't2t_vit_14' in args.arch:
         max_warmup_epoch = 1
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100LT_t2t_vit_14/ckpt_0.01_0.0005_87.70.pth'),
