@@ -3,7 +3,6 @@ python train_dynn.py --dataset cifar100LT --arch t2t_vit_7_weighted --num_epoch 
 python boosted_adaptive_inference.py --dataset cifar100LT --arch t2t_vit_7_weighted;
 python train_dynn.py --dataset cifar100LT --arch t2t_vit_7_boosted --num_epoch 15;
 python boosted_adaptive_inference.py --dataset cifar100LT --arch t2t_vit_7_boosted;
-python boosted_adaptive_inference.py --dataset cifar100LT --arch t2t_vit_7_weighted;
 python train_dynn.py --ce_ic_tradeoff 0.01 --dataset cifar100LT --arch t2t_vit_7 --num_epoch 15;
 python train_dynn.py --ce_ic_tradeoff 0.5 --dataset cifar100LT --arch t2t_vit_7 --num_epoch 15;
 python train_dynn.py --ce_ic_tradeoff 0.1 --dataset cifar100LT --arch t2t_vit_7 --num_epoch 15;

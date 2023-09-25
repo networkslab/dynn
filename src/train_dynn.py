@@ -127,7 +127,7 @@ elif args.dataset=='cifar100':
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
                             map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
-        max_warmup_epoch = 3
+        max_warmup_epoch = 4
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100_t2t_vit_7/ckpt_0.01_0.0005_78.97.pth'),
                             map_location=torch.device(device))
 
