@@ -309,14 +309,16 @@ class T2T_ViT(nn.Module):
         intermediate_logits = []
         for blk_idx, blk in enumerate(self.blocks):
             x, act_code = blk.forward_get_code(x)
-            if hasattr(self, 'intermediate_head_positions') and blk_idx in self.intermediate_head_positions:
-                inter_z = self.norm(x)[:, 0]
-                intermediate_z.append(inter_z)
-                intermediate_codes.append(act_code)
+            inter_z = self.norm(x)[:, 0]
+            intermediate_z.append(inter_z)
+            intermediate_codes.append(act_code)
+            inter_logits = None
+            if hasattr(self, 'intermediate_heads') and blk_idx in self.intermediate_head_positions:
                 intermediate_head = self.intermediate_heads[blk_idx]
                 inter_logits = intermediate_head(inter_z)
                 intermediate_logits.append(inter_logits)
-                self.gates[blk_idx](inter_logits) if hasattr(self, 'gates') else 0
+            if blk_idx < len(self.gates):
+                self.gates[blk_idx](inter_logits if inter_logits is not None else torch.rand(self.num_classes)) if hasattr(self, 'gates') else 0
         x = self.norm(x)
         x = self.head(x[:, 0])
         return x, intermediate_z

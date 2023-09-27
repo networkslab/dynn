@@ -4,6 +4,7 @@ from __future__ import print_function
 from __future__ import division
 from models.custom_modules.learnable_uncertainty_gate import LearnableUncGate
 import torch
+from models.custom_modules.gate import GateType
 import torch.nn as nn
 from torch.autograd import Variable
 from functools import reduce
@@ -172,3 +173,31 @@ def count_gelu(x, multi_add):
     # GELU: 0.5 * x * (1 + tanh(sqrt(2 / np.pi) * (x + 0.044715 * pow(x, 3))))
     flops = x_size * 4 * multi_add # multi-add controls whether we're doing flops or mul-add
     return flops
+
+# Helper function to measure the incurred cost from adding IMs and gates.
+
+def measure_arch_mul_add(net, args, device, transformer_layer_gating, img_size = 224, num_classes = 10):
+    # this is due to the way we detect exits by using a gate, this is so we can get a clear picture at every exit even
+    # before augmenting the backbone with IMs. We use identity gates which have no costs simply to detect where exits are.
+    net.set_learnable_gates(device,
+                            transformer_layer_gating,
+                            direct_exit_prob_param=True,
+                            gate_type=GateType.IDENTITY,
+                            proj_dim=int(args.proj_dim),
+                            num_proj=int(args.num_proj))
+    n_flops, n_params, n_flops_at_gates = measure_model_and_assign_cost_per_exit(net, img_size, img_size, num_classes=num_classes)
+    print(f"Before adding extra heads {args.arch}, {args.dataset}: {n_flops_at_gates}")
+    net.set_intermediate_heads(transformer_layer_gating)
+
+    n_flops, n_params, n_flops_at_gates = measure_model_and_assign_cost_per_exit(net, img_size, img_size, num_classes=num_classes)
+    print(f"After adding extra heads {args.arch}, {args.dataset}: {n_flops_at_gates}")
+
+    net.set_learnable_gates(device,
+                            transformer_layer_gating,
+                            direct_exit_prob_param=True,
+                            gate_type=GateType.IDENTITY if 'baseline' in args.arch else args.gate,
+                            proj_dim=int(args.proj_dim),
+                            num_proj=int(args.num_proj))
+
+    n_flops, n_params, n_flops_at_gates = measure_model_and_assign_cost_per_exit(net, img_size, img_size, num_classes=num_classes)
+    print(f"Fully augmented model {args.arch}, {args.dataset}: {n_flops_at_gates}")
