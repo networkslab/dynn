@@ -38,6 +38,8 @@ parser.add_argument('--drop-path', type=float, default=0.1, metavar='PCT',
                     help='Drop path rate (default: None)')
 parser.add_argument('--transfer-ratio', type=float, default=0.01,
                     help='lr ratio between classifier and backbone in transfer learning')
+parser.add_argument('--weights-path', type=str, default='model_weights/71.7_T2T_ViT_7.pth.tar',
+                    help='Path to downloaded weights to transfer learn from. Path should start at project root')
 parser.add_argument('--use_mlflow', default=True, help='Store the run with mlflow')
 args = parser.parse_args()
 
@@ -75,10 +77,8 @@ elif args.dataset=='svhn':
     img_size = 32
     train_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch)
    
-if 't2t_vit_14' in args.arch:
-    pretrained_model_weights = os.path.join(path_project,"model_weights/81.5_T2T_ViT_14.pth.tar")
-elif 't2t_vit_7' in args.arch:
-    pretrained_model_weights = os.path.join(path_project,"model_weights/71.7_T2T_ViT_7.pth.tar")  
+
+pretrained_model_weights = os.path.join(path_project,args.weights_path)
 
 print(f'learning rate:{args.lr}, weight decay: {args.wd}')
 # create T2T-ViT Model
