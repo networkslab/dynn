@@ -3,10 +3,13 @@
 This repository holds companion code for our paper "Jointly-learned Exit and Inference for Dynamic Neural Networks". We explore ways of training an efficient dynamic neural network by augmenting a frozen off-the-shelf neural network as backbone.
 
 ## Attribution
-The starting code was taken from the original repository for [T2T-ViT](https://github.com/yitu-opensource/T2T-ViT) since we used various T2T-ViT models as backbone for our dynamic neural network. Some code was borrowed from [Boosted-Dynamic-Networks](https://github.com/SHI-Labs/Boosted-Dynamic-Networks) and [L2W-DEN](https://github.com/LeapLabTHU/L2W-DEN) which we used as baselines.
+The starting code was taken from the original repository for [T2T-ViT](https://github.com/yitu-opensource/T2T-ViT) since we used T2T-ViT-7/14 models as backbone for our dynamic neural network. Some code was borrowed from [Boosted-Dynamic-Networks](https://github.com/SHI-Labs/Boosted-Dynamic-Networks) and [L2W-DEN](https://github.com/LeapLabTHU/L2W-DEN) which we used as baselines.
 
 ## Supported datasets
 Out of the box this codebase supports CIFAR10, CIFAR100, SVHN and CIFAR100-LT.
+
+## Supported models
+Out of the box we support T2T-ViT-7 and T2T-ViT-14. You can add other models using [timm](https://github.com/huggingface/pytorch-image-models).
 
 ## Running the code
 To run the code:
