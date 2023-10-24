@@ -165,6 +165,13 @@ net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
 net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
 
+net.set_learnable_gates(device,
+                        transformer_layer_gating,
+                        direct_exit_prob_param=True,
+                        gate_type=GateType.IDENTITY if 'baseline' in args.arch else args.gate,
+                        proj_dim=int(args.proj_dim),
+                        num_proj=int(args.num_proj))
+
 n_flops, n_params, n_flops_at_gates = measure_model_and_assign_cost_per_exit(net, IMG_SIZE, IMG_SIZE, num_classes=NUM_CLASSES)
 net = net.to(device)
 
