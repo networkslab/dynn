@@ -75,25 +75,3 @@ def freeze_backbone(network, excluded_submodules: list[str]):
     print('Successfully froze network: from {} to {} trainable params.'.format(
         total_num_parameters, num_trainable_params))
 
-
-def get_boosted_loss(inputs, targets, optimizer, net):
-    # assert isinstance(net, Boosted_T2T_ViT), 'Boosted loss only available for boosted t2t vit'
-    n_blocks = len(net.blocks)
-    optimizer.zero_grad()
-
-    # Ensembling
-    preds, pred_ensembles = net.forward_all(inputs, n_blocks - 1)
-    loss_all = 0
-    for stage in range(n_blocks):
-        # train weak learner
-        # fix F
-        with torch.no_grad():
-            if not isinstance(pred_ensembles[stage], torch.Tensor):
-                out = torch.unsqueeze(torch.Tensor([pred_ensembles[stage]]), 0)  # 1x1
-                out = out.expand(inputs.shape[0], net.num_classes).cuda()
-            else:
-                out = pred_ensembles[stage]
-            out = out.detach()
-        loss = criterion(preds[stage] + out, targets)
-        loss_all = loss_all + loss
-    return loss_all
