@@ -3,7 +3,7 @@
 This repository holds companion code for our paper "Jointly-learned Exit and Inference for Dynamic Neural Networks". We explore ways of training an efficient dynamic neural network by augmenting a frozen off-the-shelf neural network as backbone.
 
 ## Attribution
-The starting code was taken from the original repository for [T2T-ViT](https://github.com/yitu-opensource/T2T-ViT) since we used T2T-ViT-7/14 models as backbone for our dynamic neural network. Some code was borrowed from [Boosted-Dynamic-Networks](https://github.com/SHI-Labs/Boosted-Dynamic-Networks) and [L2W-DEN](https://github.com/LeapLabTHU/L2W-DEN) which we used as baselines.
+The starting code was taken from the original repository for [T2T-ViT](https://github.com/yitu-opensource/T2T-ViT) since we used T2T-ViT-7/14 models as backbone for our dynamic neural network.
 
 ## Supported datasets
 Out of the box this codebase supports CIFAR10, CIFAR100, SVHN and CIFAR100-LT.
@@ -13,7 +13,7 @@ Out of the box we support T2T-ViT-7 and T2T-ViT-14. You can add other models usi
 
 ## Running the code
 To run the code:
-1. Install all requirements `pip install -r requirements.txt`
+1. Install all requirements `pip install -r requirements.txt` (it is preferable if you create a virtual environment using conda or venv and install those requirements in that environment)
 2. Download the weights for the 7-layer vision transformer T2T-ViT-7 trained on Imagenet:  from https://github.com/yitu-opensource/T2T-ViT and store them locally.
 3. To transfer learn T2T-ViT-7 to CIFAR-10, you need to run `transfer_learning.py` with the right parameters including `--weights-path` which points to the directory where you downloaded the weights, starting from the root of the project.
 ```
