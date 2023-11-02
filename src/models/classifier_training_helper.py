@@ -55,7 +55,7 @@ class ClassifierTrainingHelper:
             intermediate_logits.append(current_logits)
             # TODO: Freezing the gate can be done in learning helper when we switch phase.
             with torch.no_grad(): # Prevent backpropagation to gates.
-                    exit_gate_logit = self.net.module.get_gate_prediction(l, current_logits, intermediate_codes)
+                    exit_gate_logit = self.net.module.get_gate_prediction(l, current_logits)
             g = torch.nn.functional.sigmoid(exit_gate_logit) # g
         
             no_exit_previous_gates_prob = torch.prod(1 - prob_gates, axis=1)[:,None] # prod (1-g)

@@ -48,7 +48,7 @@ class GateTrainingHelper:
  
 
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor):
-        final_head, intermediate_zs, intermediate_codes = self.net.module.forward_features(inputs)
+        final_head, intermediate_zs = self.net.module.forward_features(inputs)
         final_logits = self.net.module.head(final_head)
         intermediate_losses = []
         gate_logits = []
@@ -59,7 +59,7 @@ class GateTrainingHelper:
         for l, intermediate_head in enumerate(self.net.module.intermediate_heads):
             current_logits = intermediate_head(intermediate_zs[l])
             intermediate_logits.append(current_logits)
-            current_gate_logits = self.net.module.get_gate_prediction(l, current_logits, intermediate_codes)      
+            current_gate_logits = self.net.module.get_gate_prediction(l, current_logits)
             gate_logits.append(current_gate_logits)
             pred_loss = self.predictor_criterion(current_logits, targets)
             ic_loss = self.net.module.normalized_cost_per_exit[l]

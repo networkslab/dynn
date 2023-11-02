@@ -18,7 +18,6 @@ from models.custom_modules.gate import GateType
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
-from .custom_modules.custom_GELU import CustomGELU
 from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
 from .custom_modules.identity_gate import IdentityGate
 from sklearn.metrics import accuracy_score
@@ -220,13 +219,8 @@ class T2T_ViT(nn.Module):
         elif gate_type == GateType.IDENTITY:
             self.gates = nn.ModuleList([IdentityGate() for _ in range(len(self.gate_positions))])
 
-    def get_gate_prediction(self, l, current_logits, intermediate_codes):
-        if self.gate_type == GateType.UNCERTAINTY:
-            return self.gates[l](current_logits)
-        elif self.gate_type == GateType.CODE:
-            return self.gates[l](intermediate_codes[l])
-        elif self.gate_type == GateType.CODE_AND_UNC:
-            return self.gates[l](intermediate_codes[l], current_logits)
+    def get_gate_prediction(self, l, current_logits):
+        return self.gates[l](current_logits)
 
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
@@ -287,7 +281,6 @@ class T2T_ViT(nn.Module):
         x = x + self.pos_embed
         x = self.pos_drop(x)
         intermediate_z = [] # the embedding fed into the augmenting classifiers
-        intermediate_codes = []
         intermediate_logits = []
         for blk_idx, blk in enumerate(self.blocks):
             x = blk.forward(x)

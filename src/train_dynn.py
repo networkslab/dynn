@@ -16,8 +16,7 @@ from log_helper import setup_mlflow
 from models.classifier_training_helper import LossContributionMode
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
-from our_train_helper import set_from_validation, evaluate, train_single_epoch, eval_baseline
-from threshold_helper import fixed_threshold_test
+from our_train_helper import set_from_validation, evaluate, train_single_epoch
 from utils import fix_the_seed, save_dynn_checkpoint
 from models.register_models import *
 from models.t2t_vit import TrainingPhase
@@ -87,7 +86,7 @@ if args.dataset=='cifar10':
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_14/ckpt_0.01_0.0005_96.35.pth'),
                         map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
-        max_warmup_epoch = 3
+        max_warmup_epoch = 1
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
     
@@ -152,8 +151,7 @@ net.set_intermediate_heads(transformer_layer_gating)
 
 net.set_learnable_gates(transformer_layer_gating,
                         direct_exit_prob_param=True,
-                        gate_type=GateType.IDENTITY if 'baseline' in args.arch else args.gate,
-                        )
+                        gate_type=args.gate)
 
 n_flops, n_params, n_flops_at_gates = measure_model_and_assign_cost_per_exit(net, IMG_SIZE, IMG_SIZE, num_classes=NUM_CLASSES)
 net = net.to(device)
