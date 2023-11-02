@@ -14,18 +14,13 @@ from timm.models.helpers import load_pretrained
 from timm.models.registry import register_model
 from timm.models.layers import trunc_normal_
 import numpy as np
-from metrics_utils import check_hamming_vs_acc
 from models.custom_modules.gate import GateType
 from .token_transformer import Token_transformer
 from .token_performer import Token_performer
 from .transformer_block import Block, get_sinusoid_encoding
 from .custom_modules.custom_GELU import CustomGELU
 from .custom_modules.learnable_uncertainty_gate import LearnableUncGate
-from .custom_modules.learnable_code_gate import LearnableCodeGate
-from .custom_modules.learnable_complex_gate import LearnableComplexGate
 from .custom_modules.identity_gate import IdentityGate
-from .gate_training_helper import GateTrainingScheme
-from .classifier_training_helper import GateSelectionMode
 from sklearn.metrics import accuracy_score
 from enum import Enum
 
@@ -153,7 +148,7 @@ class T2T_ViT(nn.Module):
         self.blocks = nn.ModuleList([
             Block(
                 dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer, act_layer=CustomGELU)
+                drop=drop_rate, attn_drop=attn_drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
         # Classifier head
@@ -163,10 +158,6 @@ class T2T_ViT(nn.Module):
 
     def set_CE_IC_tradeoff(self, CE_IC_tradeoff):
         self.CE_IC_tradeoff = CE_IC_tradeoff
-
-    def set_gate_training_scheme_and_mode(self, gate_training_scheme: GateTrainingScheme, gate_selection_mode: GateSelectionMode):
-        self.gate_training_scheme = gate_training_scheme
-        self.gate_selection_mode = gate_selection_mode
 
     '''
     sets intermediate classifiers that are hooked after inner transformer blocks
@@ -219,20 +210,13 @@ class T2T_ViT(nn.Module):
         self.gates = gates
 
     
-    def set_learnable_gates(self, device, gate_positions, direct_exit_prob_param=False, gate_type=GateType.UNCERTAINTY, proj_dim=32, num_proj=16):
+    def set_learnable_gates(self, gate_positions, direct_exit_prob_param=False, gate_type=GateType.UNCERTAINTY):
         self.gate_positions = gate_positions
         self.direct_exit_prob_param = direct_exit_prob_param
         self.gate_type = gate_type
-        input_dim_code = self.mlp_dim*(self.tokens_to_token.num_patches+1)
         if gate_type == GateType.UNCERTAINTY:
             self.gates = nn.ModuleList([
                 LearnableUncGate() for _ in range(len(self.gate_positions))])
-        elif gate_type == GateType.CODE:
-            self.gates = nn.ModuleList([
-                LearnableCodeGate(device, input_dim=input_dim_code, proj_dim=proj_dim, num_proj=num_proj) for _ in range(len(self.gate_positions))])
-        elif gate_type == GateType.CODE_AND_UNC:
-            self.gates = nn.ModuleList([
-                LearnableComplexGate(device, input_dim=input_dim_code, proj_dim=proj_dim, num_proj=num_proj) for _ in range(len(self.gate_positions))])
         elif gate_type == GateType.IDENTITY:
             self.gates = nn.ModuleList([IdentityGate() for _ in range(len(self.gate_positions))])
 
@@ -273,26 +257,24 @@ class T2T_ViT(nn.Module):
         x = x + self.pos_embed
         x = self.pos_drop(x)
         intermediate_z = [] # the embedding fed into the augmenting classifiers
-        intermediate_codes = []
         for blk_idx, blk in enumerate(self.blocks):
-            x, act_code = blk.forward_get_code(x)
+            x = blk.forward(x)
             if hasattr(self, 'intermediate_head_positions') and blk_idx in self.intermediate_head_positions:
                 intermediate_z.append(x)
-                intermediate_codes.append(act_code)
         intermediate_z = list(map(lambda inter_out: self.norm(inter_out)[:, 0], intermediate_z))
         x = self.norm(x)
-        return x[:, 0], intermediate_z, intermediate_codes
+        return x[:, 0], intermediate_z
 
     # Similar to forward_features but passes the intermediate z's through the augmenting classifiers
     def forward(self, x):
-        x, intermediate_outs, intermediate_codes = self.forward_features(x)
+        x, intermediate_outs = self.forward_features(x)
         intermediate_logits = []
         if intermediate_outs: # what is this?
             for head_idx, intermediate_head in enumerate(self.intermediate_heads):
                 intermediate_logits.append(intermediate_head(intermediate_outs[head_idx]))
         x = self.head(x)
         # The intermediate outs are unnormalized
-        return x, intermediate_logits, intermediate_codes
+        return x, intermediate_logits
 
     # The above forward during training goes through the whole network and gathers intermediate representations for the full
     # network before actually passing those through the heads.
@@ -308,10 +290,9 @@ class T2T_ViT(nn.Module):
         intermediate_codes = []
         intermediate_logits = []
         for blk_idx, blk in enumerate(self.blocks):
-            x, act_code = blk.forward_get_code(x)
+            x = blk.forward(x)
             inter_z = self.norm(x)[:, 0]
             intermediate_z.append(inter_z)
-            intermediate_codes.append(act_code)
             inter_logits = None
             if hasattr(self, 'intermediate_heads') and blk_idx in self.intermediate_head_positions:
                 intermediate_head = self.intermediate_heads[blk_idx]

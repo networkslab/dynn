@@ -4,10 +4,6 @@ from enum import Enum
 
 from conformal_eedn import early_exit_conf_sets
 
-class GateSelectionMode(Enum):
-    PROBABILISTIC = 'prob'
-    DETERMINISTIC = 'det'
-    FRACTION = 'frac'
 
 class LossContributionMode(Enum):
     SINGLE = 'single' # a sample contributes to the loss at a single classifier
@@ -19,10 +15,9 @@ class InvalidLossContributionModeException(Exception):
     pass
 
 class ClassifierTrainingHelper:
-    def __init__(self, net: nn.Module, gate_selection_mode: GateSelectionMode, loss_contribution_mode: LossContributionMode,G: int, device) -> None:
+    def __init__(self, net: nn.Module, loss_contribution_mode: LossContributionMode,G: int, device) -> None:
         self.net = net
         self.device = device
-        self.gate_selection_mode = gate_selection_mode
         self.loss_contribution_mode = loss_contribution_mode
         self.set_fractions([1/G for _ in range(G)])
         self.alpha_qhat_dict = None
@@ -44,7 +39,7 @@ class ClassifierTrainingHelper:
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor, compute_hamming = False):
         intermediate_logits = [] # logits from the intermediate classifiers
         num_exits_per_gate = []
-        final_head, intermediate_outs, intermediate_codes = self.net.module.forward_features(inputs)
+        final_head, intermediate_outs = self.net.module.forward_features(inputs)
         final_logits = self.net.module.head(final_head)
         prob_gates = torch.zeros((inputs.shape[0], 1)).to(inputs.device)
         gated_y_logits = torch.zeros_like(final_logits) # holds the accumulated predictions in a single tensor
@@ -77,16 +72,7 @@ class ClassifierTrainingHelper:
                 loss_per_gate_list.append(loss_at_gate[:, None])
 
             prob_gates = torch.cat((prob_gates, current_gate_activation_prob), dim=1) # gate exits are independent so they won't sum to 1 over all cols
-            
-            if self.gate_selection_mode == GateSelectionMode.PROBABILISTIC:
-                do_exit = torch.bernoulli(current_gate_activation_prob)
-            elif self.gate_selection_mode == GateSelectionMode.DETERMINISTIC:
-                do_exit = current_gate_activation_prob >= 0.5
-            elif self.gate_selection_mode == GateSelectionMode.FRACTION:
-                cut_off = torch.quantile(current_gate_activation_prob, q=1-self.fractions[l]) 
-                do_exit = current_gate_activation_prob >= cut_off
-                
-                
+            do_exit = current_gate_activation_prob >= 0.5
             current_exit = torch.logical_and(do_exit, torch.logical_not(past_exits))
             current_exit_index = current_exit.flatten().nonzero()
             sample_exit_level_map[current_exit_index] = l

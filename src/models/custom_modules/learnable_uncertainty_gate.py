@@ -20,21 +20,6 @@ class LearnableUncGate(Gate):
         uncertainty_metrics = torch.cat((p_maxes, entropies, margins, entropy_pows), dim = 1)
         return self.linear(uncertainty_metrics.to(logits.device))
 
-    def inference_forward(self, input: Tensor, previous_mask: Tensor) -> Tuple[Tensor, Tensor]:
-        """Returns 2 equal-size tensors, the prediction tensor and a tensor containing the indices of predictions
-        :param input: The softmax logits of the classifier
-        """
-        input = torch.mul(
-            torch.logical_not(previous_mask).to('cuda').float()[:, None],
-            input
-        )
-        max_probs = input.max(dim = 1)
-        idx_preds_above_threshold = torch.flatten((max_probs.values > self.threshold).nonzero())
-        confident_preds = torch.index_select(input, 0, idx_preds_above_threshold)
-        mask = torch.zeros(input.shape[0], dtype=torch.bool)
-        mask[idx_preds_above_threshold] = True
-        return confident_preds, mask # 1 means early exit, 0 means propagate downstream
-
     def get_flops(self, num_classes):
         # compute flops for preprocssing of input and then for linear layer.
         p_max_flops = num_classes # comparison across the logits

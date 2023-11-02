@@ -1,6 +1,6 @@
 from sklearn.calibration import column_or_1d, check_consistent_length, _check_pos_label_consistency
 import numpy as np
-# straigh up stolen from sklearn
+# Copied from sklearn
 def calibration_curve(
     y_true,
     y_prob,

@@ -1,4 +1,4 @@
-from theft_calibration import calibration_curve
+from calibration import calibration_curve
 import torch 
 from utils import free 
 import scipy

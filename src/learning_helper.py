@@ -3,7 +3,7 @@ from models.t2t_vit import TrainingPhase
 from torch import nn
 import numpy as np
 from models.classifier_training_helper import LossContributionMode, ClassifierTrainingHelper
-from models.gate_training_helper import GateTrainingScheme, GateTrainingHelper
+from models.gate_training_helper import GateTrainingHelper
 
 criterion = nn.CrossEntropyLoss()
 
@@ -15,16 +15,12 @@ class LearningHelper:
         self._init_gate_training_helper(args, device)
 
     def _init_classifier_training_helper(self, args, device) -> None:
-        gate_selection_mode = args.gate_selection_mode
         self.loss_contribution_mode = args.classifier_loss
         self.early_exit_warmup = args.early_exit_warmup
-        self.classifier_training_helper = ClassifierTrainingHelper(self.net, gate_selection_mode, self.loss_contribution_mode, args.G, device)
+        self.classifier_training_helper = ClassifierTrainingHelper(self.net, self.loss_contribution_mode, args.G, device)
     
     def _init_gate_training_helper(self, args, device) -> None:
-        gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
-        self.gate_training_helper = GateTrainingHelper(self.net, gate_training_scheme, args.gate_objective, args.G, device)
-    
-    
+        self.gate_training_helper = GateTrainingHelper(self.net, args.gate_objective, args.G, device)
 
     def get_surrogate_loss(self, inputs, targets, training_phase=None):
         if self.net.training:
@@ -45,7 +41,7 @@ class LearningHelper:
     def get_warmup_loss(self, inputs, targets):
         criterion = nn.CrossEntropyLoss()
         self.optimizer.zero_grad()
-        final_logits, intermediate_logits, _ = self.net(inputs)
+        final_logits, intermediate_logits = self.net(inputs)
         loss = criterion(final_logits, targets)  # the grad_fn of this loss should be None if frozen
         num_gates = len(intermediate_logits)+1
         for l, intermediate_logit in enumerate(intermediate_logits):
