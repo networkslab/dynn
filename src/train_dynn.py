@@ -33,9 +33,9 @@ parser.add_argument('--arch', type=str,
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
-parser.add_argument('--dataset',type=str,default='cifar100', choices=['cifar10', 'cifar100', 'svhn', 'cifar100LT'])
+parser.add_argument('--dataset',type=str,default='cifar10', choices=['cifar10', 'cifar100', 'svhn', 'cifar100LT'])
 parser.add_argument('--batch', type=int, default=64, help='batch size')
-parser.add_argument('--ce_ic_tradeoff',default=0.7,type=float,help='cost inference and cross entropy loss tradeoff')
+parser.add_argument('--ce_ic_tradeoff',default=0.3,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--num_epoch', default=15, type=int, help='num of epochs')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
@@ -79,14 +79,14 @@ if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
     
-    train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch,
+    train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=args.batch,
                                                     test_batch_size=args.batch, val_size=5000)
     if 't2t_vit_14' in args.arch:
         max_warmup_epoch = 1
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_14/ckpt_0.01_0.0005_96.35.pth'),
                         map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
-        max_warmup_epoch = 1
+        max_warmup_epoch = 3
         checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar10_t2t_vit_7/ckpt_0.01_0.0005_94.95.pth'),
                         map_location=torch.device(device))
     
