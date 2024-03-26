@@ -7,7 +7,6 @@ import torch.backends.cudnn as cudnn
 import torch.optim as optim
 import pickle as pk
 from timm.models import *
-from thop import profile
 from models.op_counter import measure_model_and_assign_cost_per_exit
 from timm.models import create_model
 from data_loading.data_loader_helper import get_abs_path, get_cifar_100LT_dataloaders, get_cifar_10_dataloaders, get_path_to_project_root, get_cifar_100_dataloaders, get_svhn_dataloaders
@@ -16,7 +15,7 @@ from log_helper import setup_mlflow
 from models.classifier_training_helper import LossContributionMode
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
-from our_train_helper import set_from_validation, evaluate, train_single_epoch, eval_baseline
+from our_train_helper import set_from_validation, evaluate, train_single_epoch, eval_baseline, dynamic_warmup
 from threshold_helper import fixed_threshold_test
 from utils import fix_the_seed, save_dynn_checkpoint
 from models.register_models import *
@@ -38,7 +37,8 @@ parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning ra
 parser.add_argument('--dataset',type=str,default='cifar100', choices=['cifar10', 'cifar100', 'svhn', 'cifar100LT'])
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.7,type=float,help='cost inference and cross entropy loss tradeoff')
-parser.add_argument('--num_epoch', default=15, type=int, help='num of epochs')
+parser.add_argument('--num_epoch', default=10, type=int, help='num of epochs')
+parser.add_argument('--max_warmup_epoch', default=6, type=int, help='max num of warmup epochs')
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume', '-r',action='store_true',help='resume from checkpoint')
@@ -201,46 +201,26 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer,
                                                        eta_min=args.min_lr,
                                                        T_max=args.num_epoch)
 
-if 'baseline' in args.arch: # only training with warmup
-    args.early_exit_warmup = False # we don't want to freeze classifiers.
-    learning_helper = LearningHelper(net, optimizer, args, device)
-    best_acc_last_inter_head = 0
-    for epoch in range(0, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, val_loader, epoch=epoch, training_phase=TrainingPhase.WARMUP, bilevel_batch_count=args.bilevel_batch_count)
-        val_metrics_dict, _= eval_baseline(args, learning_helper, val_loader, device, epoch, 'val')
-        correct_per_gate, total_num_samples = val_metrics_dict['correct_per_gate']
-        acc_first_inter_head = correct_per_gate[0] / total_num_samples
-        save_dynn_checkpoint(net, f'checkpoint_{args.dataset}_{args.arch}', f'ckpt_ep{epoch}_first_acc_{acc_first_inter_head}.pth')
-        scheduler.step()
-else:
-    best_acc = 0
-    # start with warm up for the first epoch
-    learning_helper = LearningHelper(net, optimizer, args, device)
+
+best_acc = 0
+# start with warm up for the first epoch
+learning_helper = LearningHelper(net, optimizer, args, device)
+
+warmup_epoch = dynamic_warmup(args, learning_helper, device, train_loader, val_loader, IMG_SIZE)
+# Unfreeze all classifiers after warmup
+print("Unfreezing classifiers after warmup")
+net.module.unfreeze_all_intermediate_classifiers()
+for epoch in range(warmup_epoch + 1, args.num_epoch):
+    train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
     
-    for warmup_epoch in range(max_warmup_epoch):
-        train_single_epoch(args, learning_helper, device,
-                           train_loader, epoch=warmup_epoch, training_phase=TrainingPhase.WARMUP,
-                           bilevel_batch_count=args.bilevel_batch_count)
-        val_metrics_dict, best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch=warmup_epoch, mode='val', experiment_name=experiment_name)
-        #set_from_validation(learning_helper, val_metrics_dict)
-        evaluate(best_acc, args, learning_helper, device, test_loader, epoch=warmup_epoch, mode='test', experiment_name=experiment_name)
-        if net.module.are_all_classifiers_frozen():
-            print(f"Stopping warmup after {warmup_epoch} epochs")
-            break
-    # Unfreeze all classifiers after warmup
-    print("Unfreezing classifiers after warmup")
-    net.module.unfreeze_all_intermediate_classifiers()
-    for epoch in range(warmup_epoch + 1, args.num_epoch):
-        train_single_epoch(args, learning_helper, device, train_loader, epoch=epoch, training_phase=TrainingPhase.CLASSIFIER, bilevel_batch_count=args.bilevel_batch_count)
-        
-        val_metrics_dict, new_best_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, mode='val', experiment_name=experiment_name)
-        if new_best_acc > best_acc: 
-            evaluate(best_acc, args, learning_helper, device, test_loader, epoch, mode='test', experiment_name=experiment_name, store_results=True)
-        else:
-            evaluate(best_acc, args, learning_helper, device, test_loader, epoch, mode='test', experiment_name=experiment_name, store_results=False)
-        set_from_validation(learning_helper, val_metrics_dict)
-        #fixed_threshold_test(args,learning_helper, device, test_loader, val_loader) # this can make gpu run OOM
-        scheduler.step()
-    
+    val_metrics_dict, latest_acc, _ = evaluate(best_acc, args, learning_helper, device, val_loader, epoch, mode='val', experiment_name=experiment_name)
+    if latest_acc > best_acc: 
+        evaluate(best_acc, args, learning_helper, device, test_loader, epoch, mode='test', experiment_name=experiment_name, store_results=True)
+        best_acc = latest_acc
+    else:
+        evaluate(best_acc, args, learning_helper, device, test_loader, epoch, mode='test', experiment_name=experiment_name, store_results=False)
+    set_from_validation(learning_helper, val_metrics_dict)
+    scheduler.step()
+
 
 mlflow.end_run()

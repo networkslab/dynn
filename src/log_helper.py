@@ -30,8 +30,9 @@ def key_to_name_display(metric_key):
     return metric_name
 
 
-def log_aggregate_metrics_mlflow(prefix_logger, metrics_dict, gates_count):
+def aggregate_metrics_mlflow(prefix_logger, metrics_dict, gate_positions):
     log_dict = {}
+    gates_count = len(gate_positions)
     for metric_key, val in metrics_dict.items():
         if we_want_to_see_it(metric_key):
             metric_name_display = key_to_name_display(metric_key)
@@ -40,12 +41,17 @@ def log_aggregate_metrics_mlflow(prefix_logger, metrics_dict, gates_count):
                 if type(cumul_metric) is list: 
                     if (len(cumul_metric) == gates_count or len(cumul_metric) == gates_count+1) and 'per_gate' in metric_key:# if the length is the number of gates we want to see all of them
                         for g, cumul_metric_per_gate in enumerate(cumul_metric):
-                            log_dict[prefix_logger+'/'+metric_name_display+ str(g)]  = get_display(metric_key, cumul_metric_per_gate)/total
+                            if g < len(gate_positions): # intermediate gates
+                                absolute_idx = gate_positions[g]
+                                log_dict[prefix_logger+'/'+metric_name_display+ str(absolute_idx)] = get_display(metric_key, cumul_metric_per_gate)/total
+                            else:
+                                log_dict[prefix_logger+'/'+metric_name_display+ 'final'] = get_display(metric_key, cumul_metric_per_gate)/total
                     else:
                         log_dict[prefix_logger+'/'+metric_name_display]  = get_display(metric_key, np.mean(cumul_metric))/total
                 elif type(cumul_metric) is dict :
                     for g, cumul_metric_per_gate in cumul_metric.items():
-                            log_dict[prefix_logger+'/'+metric_name_display+ str(g)]  = get_display(metric_key, cumul_metric_per_gate)/total
+                        absolute_idx = gate_positions[g]
+                        log_dict[prefix_logger+'/'+metric_name_display+ str(absolute_idx)]  = get_display(metric_key, cumul_metric_per_gate)/total
                 else:
                     log_dict[prefix_logger+'/'+metric_name_display] = get_display(metric_key, cumul_metric)/total
     return log_dict

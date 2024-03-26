@@ -7,14 +7,13 @@ from timm.models import *
 from timm.models import create_model
 from collect_metric_iter import aggregate_metrics, process_things
 from conformal_eedn import compute_conf_threshold
-from data_loading.data_loader_helper import get_path_to_project_root, split_dataloader_in_n
+from data_loading.data_loader_helper import get_path_to_project_root, split_dataloader_in_n,  get_abs_path
 from learning_helper import LearningHelper
-from log_helper import log_aggregate_metrics_mlflow
+from log_helper import aggregate_metrics_mlflow
 from models.classifier_training_helper import LossContributionMode
 from utils import aggregate_dicts, progress_bar
 from early_exit_utils import switch_training_phase
 from models.t2t_vit import TrainingPhase
-from plasticity_analysis.plasticity_metrics_utility import get_network_weight_norm_dict
 import numpy as np
 import pickle as pk
 def display_progress_bar(prefix_logger, training_phase, step, total, log_dict):
@@ -34,7 +33,8 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
           bilevel_batch_count=20):
     print('\nEpoch: %d' % epoch)
     helper.net.train()
-
+    gate_positions = helper.net.module.intermediate_head_positions
+    num_layers = len(helper.net.module.blocks)
     metrics_dict = {}
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
@@ -52,26 +52,24 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
                     metrics_dict = {}
                     training_phase = switch_training_phase(training_phase)
             loss, things_of_interest = helper.get_surrogate_loss(inputs, targets, training_phase)
-        weight_norm_metrics = get_network_weight_norm_dict(helper.net.module)
         loss.backward()
         helper.optimizer.step()
         
         # obtain the metrics associated with the batch
-        metrics_of_batch = process_things(things_of_interest, gates_count=args.G,
+        metrics_of_batch = process_things(things_of_interest, gate_positions=gate_positions,
                                           targets=targets, batch_size=batch_size,
-                                          cost_per_exit=helper.net.module.normalized_cost_per_exit)
+                                          cost_per_exit=helper.net.module.normalized_cost_per_exit, num_layers=num_layers)
         metrics_of_batch['loss'] = (loss.item(), batch_size)
         
         # keep track of the average metrics
-        metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G) 
+        metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gate_positions=gate_positions)
 
         # format the metric ready to be displayed
-        log_dict = log_aggregate_metrics_mlflow(
+        log_dict = aggregate_metrics_mlflow(
                 prefix_logger='train',
-                metrics_dict=metrics_dict, gates_count=args.G) 
+                metrics_dict=metrics_dict, gate_positions=gate_positions) 
 
         if args.use_mlflow:
-            log_dict = log_dict | weight_norm_metrics
             mlflow.log_metrics(log_dict,
                                 step=batch_idx +
                                 (epoch * len(train_loader)))
@@ -88,9 +86,106 @@ def train_single_epoch(args, helper: LearningHelper, device, train_loader, epoch
     return metrics_dict
 
 
+'''
+Warms up the IMs of a model until convergence using the val accuracy as a metric.
+'''
+def dynamic_warmup(args, helper: LearningHelper, device, train_loader, val_loader, img_size, patience = 2):
+    # Prepare folder for serializing IMs
+    DYNAMIC_WARMUP_FOLDER = 'jeidnn_dynamic_warmup'
+    subfolder_name = f'{args.dataset}_{args.arch}_{img_size}_{args.max_warmup_epoch}'
+
+    checkpoint_folder_path = get_abs_path(["checkpoint"])
+    dynamic_warmup_folder_path = f'{checkpoint_folder_path}{DYNAMIC_WARMUP_FOLDER}/{subfolder_name}'
+    if not os.path.isdir(dynamic_warmup_folder_path):
+        os.makedirs(dynamic_warmup_folder_path, exist_ok=True)
+    best_val_accs_per_layer = [0 for _ in range(args.G)]
+    patience_counter_per_layer = [0 for _ in range(args.G)]
+    helper.net.train()
+    num_layers = len(helper.net.module.blocks)
+    exit_positions = helper.net.module.intermediate_head_positions
+    PRINT_FREQ = 50
+    best_acc = 0
+    for epoch in range(args.max_warmup_epoch):
+        print('\nEpoch: %d' % epoch)
+        metrics_dict = {}
+        # TRAIN
+        for batch_idx, (inputs, targets) in enumerate(train_loader):
+            inputs, targets = inputs.to(device), targets.to(device)
+            batch_size = targets.size(0)
+            loss, things_of_interest = helper.get_warmup_loss(inputs, targets)
+            loss.backward()
+            helper.optimizer.step() # need scheduler step as well.
+
+            # obtain the metrics associated with the batch
+            metrics_of_batch = process_things(things_of_interest, gate_positions=exit_positions,
+                                              targets=targets, batch_size=batch_size,
+                                              cost_per_exit=helper.net.module.normalized_cost_per_exit, num_layers=num_layers)
+            metrics_of_batch['loss'] = (loss.item(), batch_size)
+            if batch_idx % PRINT_FREQ == 0:
+                print(f"Ep: {epoch}, Batch: {batch_idx}/{len(train_loader)}. Loss: {loss}")
+            # keep track of the average metrics
+            metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gate_positions=exit_positions)
+            log_dict = aggregate_metrics_mlflow(
+                prefix_logger='train',
+                metrics_dict=metrics_dict, gate_positions=exit_positions)
+
+            if args.use_mlflow:
+                mlflow.log_metrics(log_dict,
+                                   step=batch_idx +
+                                        (epoch * len(train_loader)))
+        # EVAL
+        val_metrics_dict, best_acc, _ = evaluate(best_acc, args, helper, device, val_loader, epoch, 'val', 'dynamic_warmup', store_results=False)
+
+        correct_per_exit = val_metrics_dict['correct_per_gate'][0]
+        total_val_samples = val_metrics_dict['correct_per_gate'][1]
+        for layer in range(len(correct_per_exit)):
+            im = helper.net.module.intermediate_heads[layer]
+            if helper.net.module.is_classifier_frozen(layer):
+                print(f"Skipper IM {layer}, it was already frozen")
+                continue
+            layer_acc = correct_per_exit[layer] / total_val_samples
+            if layer_acc > best_val_accs_per_layer[layer]:
+                best_val_accs_per_layer[layer] = layer_acc
+                # reset patience
+                patience_counter_per_layer[layer] = 0
+                # serialize IM
+                im_state_dict = im.state_dict()
+                serializable_dict = {
+                    'state': im_state_dict,
+                    'acc': layer_acc,
+                    'epoch': epoch,
+                }
+                torch.save(serializable_dict,f'{dynamic_warmup_folder_path}/{layer}.pth')
+            else:
+                patience_counter_per_layer[layer] += 1
+                if patience_counter_per_layer[layer] >= patience:
+                    # restore optimal weights for IM and freeze IM
+                    checkpoint = torch.load(f'{dynamic_warmup_folder_path}/{layer}.pth',
+                                            map_location=torch.device(device))
+                    im.load_state_dict(checkpoint['state'], strict=False)
+                    helper.net.module.freeze_intermediate_classifier(layer)
+                    print(f"Freezing IM {layer} after {epoch} epochs with acc {checkpoint['acc']}")
+        if helper.net.module.are_all_classifiers_frozen():
+            print(f"All classifiers converged. Stopping dynamic warmup after {epoch}/{args.max_warmup_epoch}")
+            print(f"Final accs are {best_val_accs_per_layer}")
+            return epoch
+    # Reached end of max warm up epoch without full convergence, report it and load best IMs so far.
+    print("Reached end of dynamic warmup epoch before convergence of all IMs")
+    for relative_idx, absolute_idx in enumerate(exit_positions):
+        if helper.net.module.is_classifier_frozen(relative_idx):
+            print(f"IM {absolute_idx} has reached convergence")
+        else:
+            im = helper.net.module.intermediate_heads[relative_idx]
+            checkpoint = torch.load(f'{dynamic_warmup_folder_path}/{relative_idx}.pth',
+                                    map_location=torch.device(device))
+            im.load_state_dict(checkpoint['state'], strict=False)
+            print(f"IM {absolute_idx} has not converged, loading params with acc {checkpoint['acc']}")
+    return epoch
 
 def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch, mode: str, experiment_name: str, store_results=False):
     helper.net.eval()
+    num_layers = len(helper.net.module.blocks)
+    gate_positions = helper.net.module.intermediate_head_positions
     metrics_dict = {}
     if mode == 'test': # we should split the data and combine at the end
         loaders = split_dataloader_in_n(init_loader, n=10)
@@ -103,23 +198,22 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
         for batch_idx, (inputs, targets) in enumerate(loader):
             inputs, targets = inputs.to(device), targets.to(device)
             batch_size = targets.size(0)
-
             loss, things_of_interest = helper.get_surrogate_loss(inputs, targets)
             
             # obtain the metrics associated with the batch
-            metrics_of_batch = process_things(things_of_interest, gates_count=args.G,
+            metrics_of_batch = process_things(things_of_interest, gate_positions=gate_positions,
                                               targets=targets, batch_size=batch_size,
-                                              cost_per_exit=helper.net.module.mult_add_at_exits)
+                                              cost_per_exit=helper.net.module.mult_add_at_exits, num_layers=num_layers)
             metrics_of_batch['loss'] = (loss.item(), batch_size)
             
 
             # keep track of the average metrics
-            metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G) 
-            
+            metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gate_positions=gate_positions)
+
             # format the metric ready to be displayed
-            log_dict = log_aggregate_metrics_mlflow(
+            log_dict = aggregate_metrics_mlflow(
                     prefix_logger=mode,
-                    metrics_dict=metrics_dict, gates_count=args.G) 
+                    metrics_dict=metrics_dict, gate_positions=gate_positions)
            #display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
 
             if args.barely_train:
@@ -138,7 +232,8 @@ def evaluate(best_acc, args, helper: LearningHelper, device, init_loader, epoch,
     average_trials_log_dict[mode+'/test_acc']= gated_acc
     mlflow.log_metrics(average_trials_log_dict, step=epoch)
     # Save checkpoint.
-    if gated_acc > best_acc and mode == 'val':
+
+    if gated_acc > best_acc and mode == 'val' and store_results:
         print('Saving..')
         state = {
             'net': helper.net.state_dict(),
@@ -222,7 +317,7 @@ def eval_baseline(args, helper: LearningHelper, val_loader, device, epoch, mode:
         metrics_dict = aggregate_metrics(metrics_of_batch, metrics_dict, gates_count=args.G)
 
         # format the metric ready to be displayed
-        log_dict = log_aggregate_metrics_mlflow(
+        log_dict = aggregate_metrics_mlflow(
             prefix_logger=mode,
             metrics_dict=metrics_dict, gates_count=args.G)
         #display_progress_bar(prefix_logger=prefix_logger,training_phase=TrainingPhase.CLASSIFIER, step=batch_idx, total=len(loader), log_dict=log_dict)
