@@ -9,6 +9,7 @@ Out of the box this codebase supports CIFAR10, CIFAR100, SVHN and CIFAR100-LT.
 ## Supported models
 Out of the box we support T2T-ViT-7 and T2T-ViT-14. You can add other models using [timm](https://github.com/huggingface/pytorch-image-models).
 
+
 ## Running the code
 First, install all requirements `pip install -r requirements.txt` (it is preferable if you create a virtual environment using conda or venv and install those requirements in that environment)
 You can then choose to run JEI-DNN directly on some of the already supported datasets or transfer learn an Imagenet-pretrained version onto a new dataset.
@@ -20,8 +21,8 @@ python transfer_learning.py --lr 0.05 --b 64 --num-classes 10 --img-size 224 --t
 ```
 
 ### Run JEI-DNN on supported datasets.
-1. Download the model checkpoints from this [google drive](https://drive.google.com/drive/folders/1kyAVHtTKNx-h_pgpm_9cqktF8Ce6ZiAg?usp=sharing)  and place each in the appropriate checkpoint folder (by dataset and architecture).
-2. Make sure the path match the path in train_dynn.py for the dataset.
+1. Download the model checkpoints from this [google drive](https://drive.google.com/drive/folders/1kyAVHtTKNx-h_pgpm_9cqktF8Ce6ZiAg?usp=sharing)  and place each in the appropriate checkpoint folder (by dataset and architecture `checkpoint/checkpoint_DATASET_ARCH/`).
+2. Make sure the checkpoint path matches the path in train_dynn.py for that dataset.
 3. You can now train JEI-DNN for dynamic inference. You can specify the dataset, the architecture, number of epochs and the `ce_ic_tradeoff`. Higher values of `ce_ic_tradeoff` mean the model is trained to exit earlier, at the cost of losing accuracy.
 ```
 python train_dynn.py --ce_ic_tradeoff 0.15 --dataset cifar10 --arch t2t_vit_7 --num_epoch 15;
