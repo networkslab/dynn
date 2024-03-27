@@ -12,9 +12,6 @@ class IdentityGate(Gate):
     def forward(self, logits: Tensor) -> (Tensor):
         return logits
 
-    def inference_forward(self, input: Tensor, previous_mask: Tensor) -> Tuple[Tensor, Tensor]:
-        return input
-
     def get_flops(self, num_classes):
         # This gate has no cost, it is only here to help flops calculation of the baselines.
         return 0

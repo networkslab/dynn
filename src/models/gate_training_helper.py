@@ -4,17 +4,6 @@ import torch.nn as nn
 from sklearn.metrics import accuracy_score
 from enum import Enum
 
-class GateTrainingScheme(Enum):
-    """
-    The training scheme when training gates.
-    Default means training the optimal gate to exit while all others are forced not to.
-    Ignore subsequent means training the optimal gate to exit, the previous gates to not exit and we ignore later (deeper) gates
-    Exit subsequent means training the optimal gate to exit, all subsequent gates to exit as well while earlier gates are trained not to exit.
-    """
-    DEFAULT = 1
-    IGNORE_SUBSEQUENT = 2
-    EXIT_SUBSEQUENT = 3
-
 class GateObjective(Enum):
     CrossEntropy = "ce"
     ZeroOne = "zeroOne"
@@ -24,9 +13,8 @@ class InvalidLossContributionModeException(Exception):
     pass
 
 class GateTrainingHelper:
-    def __init__(self, net: nn.Module, gate_training_scheme: GateTrainingScheme, gate_objective: GateObjective, G: int, device) -> None:
+    def __init__(self, net: nn.Module, gate_objective: GateObjective, G: int, device) -> None:
         self.net = net
-        self.gate_training_scheme = gate_training_scheme
         self.device  = device
         self.set_ratios([1 for _ in range(G)])
         
@@ -47,8 +35,6 @@ class GateTrainingHelper:
     def prob_when_correct(self, logits, targets):
         probs = torch.nn.functional.softmax(logits, dim=1) # get the probs
         p_max, _ = torch.topk(probs, 1) # get p max
-
-
         _, predicted = logits.max(1) # get the prediction
         correct = predicted.eq(targets)[:,None]
 
@@ -62,7 +48,7 @@ class GateTrainingHelper:
  
 
     def get_loss(self, inputs: torch.Tensor, targets: torch.tensor):
-        final_head, intermediate_zs, intermediate_codes = self.net.module.forward_features(inputs)
+        final_head, intermediate_zs = self.net.module.forward_features(inputs)
         final_logits = self.net.module.head(final_head)
         intermediate_losses = []
         gate_logits = []
@@ -73,10 +59,10 @@ class GateTrainingHelper:
         for l, intermediate_head in enumerate(self.net.module.intermediate_heads):
             current_logits = intermediate_head(intermediate_zs[l])
             intermediate_logits.append(current_logits)
-            current_gate_logits = self.net.module.get_gate_prediction(l, current_logits, intermediate_codes)      
+            current_gate_logits = self.net.module.get_gate_prediction(l, current_logits)
             gate_logits.append(current_gate_logits)
             pred_loss = self.predictor_criterion(current_logits, targets)
-            ic_loss = (l + 1) / (len(intermediate_zs) + 1)
+            ic_loss = self.net.module.normalized_cost_per_exit[l]
             level_loss = pred_loss + self.net.module.CE_IC_tradeoff * ic_loss
             level_loss = level_loss[:, None]
             intermediate_losses.append(level_loss)
@@ -94,10 +80,7 @@ class GateTrainingHelper:
         things_of_interest = {'exit_count_optimal_gate': optimal_exit_count_per_gate}
         gate_target_one_hot = torch.nn.functional.one_hot(gate_target, len(self.net.module.intermediate_heads) + 1)
         gate_logits = torch.cat(gate_logits, dim=1)
-        if self.gate_training_scheme == GateTrainingScheme.IGNORE_SUBSEQUENT:
-            loss, correct_exit_count = self._get_ignore_subsequent_loss(gate_target_one_hot, gate_target, gate_logits)
-        elif self.gate_training_scheme == GateTrainingScheme.EXIT_SUBSEQUENT:
-            loss, correct_exit_count = self._get_exit_subsequent_loss(gate_target_one_hot, gate_logits)
+        loss, correct_exit_count = self._get_exit_subsequent_loss(gate_target_one_hot, gate_logits)
         things_of_interest = things_of_interest | {'intermediate_logits': intermediate_logits, 'final_logits':final_logits, 'correct_exit_count': correct_exit_count}
         return loss, things_of_interest
     
@@ -117,32 +100,4 @@ class GateTrainingHelper:
         actual_exits_binary = torch.nn.functional.sigmoid(gate_logits) >= 0.5
         correct_exit_count += accuracy_score(actual_exits_binary.flatten().cpu(), hot_encode_subsequent.double().flatten().cpu(), normalize=False)
         
-        return gate_loss, correct_exit_count
-    
-    def _get_ignore_subsequent_loss(self, gate_target_one_hot, gate_target, gate_logits):
-        losses = []
-        exit_counts = []
-        correct_exit_count = 0
-        for gate_idx in range(0, len(self.gate_positions)):
-            samples_idx_should_exit_at_gate = (gate_target == gate_idx).nonzero().flatten()
-            exit_counts.append(len(samples_idx_should_exit_at_gate))
-            if len(samples_idx_should_exit_at_gate) == 0:
-                continue
-            one_hot_exiting_at_gate = gate_target_one_hot[samples_idx_should_exit_at_gate]
-            one_hot_exiting_at_gate = one_hot_exiting_at_gate[:, :gate_idx + 1] # chop all gates after the relevant gate
-            gate_logits_at_gate = gate_logits[samples_idx_should_exit_at_gate, :(gate_idx + 1)]
-            actual_exit_binary = torch.nn.functional.sigmoid(gate_logits_at_gate) >= 0.5
-            correct_exit_count += accuracy_score(actual_exit_binary.flatten().cpu(), one_hot_exiting_at_gate.double().flatten().cpu(), normalize=False)
-            losses.append(self.gate_criterion(gate_logits_at_gate, one_hot_exiting_at_gate.double()))
-        num_ones = gate_logits.shape[0] # this was len(target) ie the batch size.
-        num_zeroes = 0
-        for idx, exit_count in enumerate(exit_counts):
-            num_zeroes += idx * exit_count
-        zero_to_one_ratio = num_zeroes / num_ones
-        weighted_losses = []
-        for idx, loss in enumerate(losses):
-            multiplier = torch.ones_like(loss)
-            multiplier[:, -1] = zero_to_one_ratio
-            weighted_losses.append((loss * multiplier).flatten())
-        gate_loss = torch.mean(torch.cat(weighted_losses))
         return gate_loss, correct_exit_count

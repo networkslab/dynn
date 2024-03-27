@@ -29,14 +29,6 @@ class Mlp(nn.Module):
         x = self.drop(x)
         return x
 
-    def forward_get_code(self, x):
-        x = self.fc1(x)
-        x, activation_code = self.act.forward_get_code(x)
-        x = self.drop(x)
-        x = self.fc2(x)
-        x = self.drop(x)
-        return x, activation_code
-
 class Attention(nn.Module):
     def __init__(self, dim, num_heads=8, qkv_bias=False, qk_scale=None, attn_drop=0., proj_drop=0.):
         super().__init__()
@@ -81,12 +73,6 @@ class Block(nn.Module):
         x = x + self.drop_path(self.attn(self.norm1(x)))
         x = x + self.drop_path(self.mlp(self.norm2(x)))
         return x
-
-    def forward_get_code(self, x):
-        x = x + self.drop_path(self.attn(self.norm1(x)))
-        a, act_codes = self.mlp.forward_get_code(self.norm2(x))
-        x = x + self.drop_path(a)
-        return x, act_codes
 
 
 def get_sinusoid_encoding(n_position, d_hid):

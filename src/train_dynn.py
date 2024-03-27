@@ -15,11 +15,11 @@ from log_helper import setup_mlflow
 from models.classifier_training_helper import LossContributionMode
 from models.custom_modules.gate import GateType
 from models.gate_training_helper import GateObjective
+
 from our_train_helper import set_from_validation, evaluate, train_single_epoch, eval_baseline, dynamic_warmup
-from threshold_helper import fixed_threshold_test
 from utils import fix_the_seed, save_dynn_checkpoint
 from models.register_models import *
-from models.t2t_vit import GateTrainingScheme, GateSelectionMode, TrainingPhase
+from models.t2t_vit import TrainingPhase
 
 from datetime import datetime
 
@@ -28,13 +28,12 @@ parser = argparse.ArgumentParser(
     description='PyTorch CIFAR10/CIFAR100 Training')
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--arch', type=str,
-                    choices=['t2t_vit_7_baseline','t2t_vit_7',
-                             't2t_vit_14'], # baseline is to train only with warmup, no gating
+                    choices=['t2t_vit_7', 't2t_vit_14'], # baseline is to train only with warmup, no gating
                     default='t2t_vit_7', help='model to train'
                     )
 parser.add_argument('--wd', default=5e-4, type=float, help='weight decay')
 parser.add_argument('--min-lr',default=2e-4,type=float,help='minimal learning rate')
-parser.add_argument('--dataset',type=str,default='cifar100', choices=['cifar10', 'cifar100', 'svhn', 'cifar100LT'])
+parser.add_argument('--dataset',type=str,default='cifar10', choices=['cifar10', 'cifar100', 'svhn', 'cifar100LT'])
 parser.add_argument('--batch', type=int, default=64, help='batch size')
 parser.add_argument('--ce_ic_tradeoff',default=0.7,type=float,help='cost inference and cross entropy loss tradeoff')
 parser.add_argument('--num_epoch', default=10, type=int, help='num of epochs')
@@ -42,13 +41,10 @@ parser.add_argument('--max_warmup_epoch', default=6, type=int, help='max num of 
 parser.add_argument('--bilevel_batch_count',default=200,type=int,help='number of batches before switching the training modes')
 parser.add_argument('--barely_train',action='store_true',help='not a real run')
 parser.add_argument('--resume', '-r',action='store_true',help='resume from checkpoint')
-parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)  # unc, code, code_and_unc
+parser.add_argument('--gate',type=GateType,default=GateType.UNCERTAINTY,choices=GateType)
 parser.add_argument('--drop-path',type=float,default=0.1,metavar='PCT',help='Drop path rate (default: None)')
-parser.add_argument('--gate_selection_mode', type=GateSelectionMode, default=GateSelectionMode.DETERMINISTIC, choices=GateSelectionMode)
 parser.add_argument('--gate_objective', type=GateObjective, default=GateObjective.CrossEntropy, choices=GateObjective)
 parser.add_argument('--transfer-ratio',type=float,default=0.01, help='lr ratio between classifier and backbone in transfer learning')
-parser.add_argument('--gate_training_scheme',default='EXIT_SUBSEQUENT', help='Gate training scheme (how to handle gates after first exit)',
-    choices=['DEFAULT', 'IGNORE_SUBSEQUENT', 'EXIT_SUBSEQUENT'])
 parser.add_argument('--proj_dim',default=32,help='Target dimension of random projection for ReLU codes')
 parser.add_argument('--num_proj',default=16,help='Target number of random projection for ReLU codes')
 parser.add_argument('--use_mlflow',default=True, help='Store the run with mlflow')
@@ -62,20 +58,15 @@ if args.barely_train:
     print(
         '++++++++++++++WARNING++++++++++++++ you are barely training to test some things'
     )
-gate_training_scheme = GateTrainingScheme[args.gate_training_scheme]
 
 if args.use_mlflow:
-    if 'baseline' in args.arch:
-        name = 'baseline'
-    else:
-        name = "_".join([str(a) for a in [args.ce_ic_tradeoff, args.classifier_loss]])
+
+    name = "_".join([str(a) for a in [args.ce_ic_tradeoff, args.classifier_loss]])
     cfg = vars(args)
-    
     if args.barely_train:
         experiment_name = 'test_run'    
     else:
         experiment_name = now.strftime("%m-%d-%Y")
-        #experiment_name = 'longer_svhn'
     setup_mlflow(name, cfg, experiment_name=experiment_name)
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -89,7 +80,7 @@ if args.dataset=='cifar10':
     NUM_CLASSES = 10
     IMG_SIZE = 224
     
-    train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch,
+    train_loader, val_loader, test_loader = get_cifar_10_dataloaders(img_size = IMG_SIZE, train_batch_size=args.batch,
                                                     test_batch_size=args.batch, val_size=5000)
     if 't2t_vit_14' in args.arch:
         max_warmup_epoch = 1
@@ -107,7 +98,7 @@ elif args.dataset=='cifar100':
     train_loader, val_loader, test_loader = get_cifar_100_dataloaders(img_size = IMG_SIZE,train_batch_size=args.batch, val_size=10000)
     if 't2t_vit_14' in args.arch:
         max_warmup_epoch = 1
-        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/cifar100_t2t-vit-14_88.4.pth'),
+        checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_cifar100_t2t_vit_14/cifar100_t2t-vit-14_88.4.pth'),
                             map_location=torch.device(device))
     elif 't2t_vit_7' in args.arch:
         max_warmup_epoch = 4
@@ -129,16 +120,11 @@ elif args.dataset=='cifar100LT':
                             map_location=torch.device(device))
 
 
-
-
-
 elif args.dataset=='svhn':
     NUM_CLASSES = 10
     IMG_SIZE = 32
     max_warmup_epoch = 6
     train_loader, val_loader, test_loader = get_svhn_dataloaders(train_batch_size=args.batch, val_size=5000)
-    # checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.28764597418562.pth'),
-    #                          map_location=torch.device(device)) # less trained point
     checkpoint = torch.load(os.path.join(path_project, 'checkpoint/checkpoint_svhn_t2t_vit_7/ckpt_0.01_0.0005_91.90.pth'),
                             map_location=torch.device(device)) # more trained point
 if 't2t_vit_14' in args.arch:
@@ -163,14 +149,10 @@ net = create_model(model,
                    img_size=IMG_SIZE)
 net.set_CE_IC_tradeoff(args.ce_ic_tradeoff)
 net.set_intermediate_heads(transformer_layer_gating)
-net.set_gate_training_scheme_and_mode(gate_training_scheme, args.gate_selection_mode)
 
-net.set_learnable_gates(device,
-                        transformer_layer_gating,
+net.set_learnable_gates(transformer_layer_gating,
                         direct_exit_prob_param=True,
-                        gate_type=GateType.IDENTITY if 'baseline' in args.arch else args.gate,
-                        proj_dim=int(args.proj_dim),
-                        num_proj=int(args.num_proj))
+                        gate_type=args.gate)
 
 n_flops, n_params, n_flops_at_gates = measure_model_and_assign_cost_per_exit(net, IMG_SIZE, IMG_SIZE, num_classes=NUM_CLASSES)
 net = net.to(device)
@@ -221,6 +203,5 @@ for epoch in range(warmup_epoch + 1, args.num_epoch):
         evaluate(best_acc, args, learning_helper, device, test_loader, epoch, mode='test', experiment_name=experiment_name, store_results=False)
     set_from_validation(learning_helper, val_metrics_dict)
     scheduler.step()
-
 
 mlflow.end_run()
