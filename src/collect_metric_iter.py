@@ -56,7 +56,8 @@ def compute_optimal_threshold(threshold_name, all_p_max, list_correct_gate, targ
     generate_thresholding_plots(threshold_name, all_sorted_p_max, all_cumul_acc, all_correct, min_x, target_acc, list_optimal_threshold)
     return list_optimal_threshold
 
-def aggregate_metrics(metrics_to_aggregate_dict, metrics_dict, gates_count):
+def aggregate_metrics(metrics_to_aggregate_dict, metrics_dict, gate_positions):
+    gates_count = len(gate_positions)
     # automate what we do for each type of entries in the dict.
     for metric_key, metric_total_tuple in metrics_to_aggregate_dict.items():
         if metric_key not in metrics_dict:
@@ -83,7 +84,7 @@ def aggregate_metrics(metrics_to_aggregate_dict, metrics_dict, gates_count):
             metrics_dict[metric_key] = (aggregated_metric, total)
     return metrics_dict
 
-def process_things(things_of_interest, gates_count, targets, batch_size, cost_per_exit):
+def process_things(things_of_interest, gate_positions, targets, batch_size, cost_per_exit, num_layers):
     """
     This function transforms the model outputs to various metrics. The metrics have the format (count, batch_size) to be aggregated later with other metrics.
     """
@@ -92,7 +93,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
     if 'final_logits' in things_of_interest:
         final_y_logits = things_of_interest['final_logits']
         _, pred_final_head = final_y_logits.max(1)
-        metrics_to_aggregate_dict['correct'+str(gates_count)] = (pred_final_head.eq(targets).sum().item(), batch_size)
+        metrics_to_aggregate_dict['correct_final'] = (pred_final_head.eq(targets).sum().item(), batch_size)
 
         # uncertainty related stats to be aggregated
         p_max, entropy, average_ece, margins, entropy_pow = compute_detached_uncertainty_metrics(final_y_logits, targets)
@@ -101,10 +102,10 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
         metrics_to_aggregate_dict['final_entropy'] = (entropy, batch_size)
         metrics_to_aggregate_dict['final_pow_entropy'] = (entropy_pow, batch_size)
         metrics_to_aggregate_dict['final_margins'] = (margins, batch_size)
-        metrics_to_aggregate_dict['final_ece'] = (average_ece*batch_size*100.0, batch_size)
+        metrics_to_aggregate_dict['final_ece'] = (average_ece * batch_size * 100.0, batch_size)
         metrics_to_aggregate_dict['all_final_score'] = (score, batch_size)
         if 'sample_exit_level_map' in things_of_interest:
-                score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == gates_count)]
+                score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == num_layers)] # Fix
                 metrics_to_aggregate_dict['score_per_final_gate'] = (list(score_filtered), batch_size)
     if 'intermediate_logits' in things_of_interest:
         intermediate_logits = things_of_interest['intermediate_logits'] 
@@ -117,18 +118,18 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
         entries = ['ens_correct_per_gate','correct_per_gate', 'correct_cheating_per_gate','list_correct_per_gate','margins_per_gate',
         'p_max_per_gate','entropy_per_gate','pow_entropy_per_gate','ece_per_gate','score_per_gate', 'all_score_per_gate']
         for entry in entries:
-            metrics_to_aggregate_dict[entry] = ([0 for _ in range(gates_count)], batch_size)
-        for g in range(gates_count):
+            metrics_to_aggregate_dict[entry] = ([0 for _ in range(len(gate_positions))], batch_size)
+        for relative_gate_idx, absolute_gate_idx in enumerate(gate_positions):
 
             # normal accuracy
-            _, predicted_inter = intermediate_logits[g].max(1)
+            _, predicted_inter = intermediate_logits[relative_gate_idx].max(1)
             correct_gate = predicted_inter.eq(targets)
-            metrics_to_aggregate_dict['correct_per_gate'][0][g] = correct_gate.sum().item()
+            metrics_to_aggregate_dict['correct_per_gate'][0][relative_gate_idx] = correct_gate.sum().item()
             # ensembling
-            logits_up_to_g = torch.cat([intermediate_logits[i][:,:,None] for i in range(g+1)], dim=2) 
+            logits_up_to_g = torch.cat([intermediate_logits[i][:,:,None] for i in range(relative_gate_idx+1)], dim=2)
             if 'p_exit_at_gate' in things_of_interest: # we compute the ensembling with weighted by prob of exit
                 logits_up_to_g = torch.permute(logits_up_to_g, (1, 0, 2))  
-                weighted_logits_up_to_g = logits_up_to_g * things_of_interest['p_exit_at_gate'][:,:g+1] 
+                weighted_logits_up_to_g = logits_up_to_g * things_of_interest['p_exit_at_gate'][:,:relative_gate_idx+1]
                 weighted_logits_up_to_g = torch.permute(weighted_logits_up_to_g, (1,0, 2)) 
                 ens_logits = torch.mean(weighted_logits_up_to_g, dim=2)
             else:
@@ -145,19 +146,19 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
             #     g] = correct_class_cheating.sum().item() # getting all the corrects we can
 
             p_max, entropy, average_ece, margins, entropy_pow = compute_detached_uncertainty_metrics(
-                intermediate_logits[g], targets)
-            score = compute_detached_score(intermediate_logits[g], targets)
-            metrics_to_aggregate_dict['list_correct_per_gate'][0][g] = list(free(correct_gate))
-            metrics_to_aggregate_dict['margins_per_gate'][0][g] = margins
-            metrics_to_aggregate_dict['p_max_per_gate'][0][g] = p_max
-            metrics_to_aggregate_dict['entropy_per_gate'][0][g] = entropy
+                intermediate_logits[relative_gate_idx], targets)
+            score = compute_detached_score(intermediate_logits[relative_gate_idx], targets)
+            metrics_to_aggregate_dict['list_correct_per_gate'][0][relative_gate_idx] = list(free(correct_gate))
+            metrics_to_aggregate_dict['margins_per_gate'][0][relative_gate_idx] = margins
+            metrics_to_aggregate_dict['p_max_per_gate'][0][relative_gate_idx] = p_max
+            metrics_to_aggregate_dict['entropy_per_gate'][0][relative_gate_idx] = entropy
             #metrics_to_aggregate_dict['pow_entropy_per_gate'][0][g] = entropy_pow
-            metrics_to_aggregate_dict['ece_per_gate'][0][g] = 100.0*average_ece*batch_size
+            metrics_to_aggregate_dict['ece_per_gate'][0][relative_gate_idx] = 100.0*average_ece*batch_size
             if 'sample_exit_level_map' in things_of_interest:
-                score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == g)]
-                metrics_to_aggregate_dict['score_per_gate'][0][g] = list(score_filtered)
+                score_filtered = np.array(score)[free(things_of_interest['sample_exit_level_map'] == relative_gate_idx)]
+                metrics_to_aggregate_dict['score_per_gate'][0][relative_gate_idx] = list(score_filtered)
             
-            metrics_to_aggregate_dict['all_score_per_gate'][0][g] = score
+            metrics_to_aggregate_dict['all_score_per_gate'][0][relative_gate_idx] = score
 
         correct_class_cheating += pred_final_head.eq(targets)  # getting all the corrects we can
         metrics_to_aggregate_dict['cheating_correct'] = (correct_class_cheating.sum().item(), batch_size)
@@ -183,7 +184,7 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
         score = compute_detached_score(gated_y_logits, targets)
         _, predicted = gated_y_logits.max(1)
         metrics_to_aggregate_dict['gated_correct_count'] = (predicted.eq(targets).sum().item(), batch_size)
-        metrics_to_aggregate_dict['gated_ece_count'] = (100.0*average_ece*batch_size, batch_size)
+        metrics_to_aggregate_dict['gated_ece_count'] = (100.0 * average_ece*batch_size, batch_size)
         metrics_to_aggregate_dict['gated_score'] = (score, batch_size)
         
     if 'num_exits_per_gate' in things_of_interest:
@@ -195,26 +196,28 @@ def process_things(things_of_interest, gates_count, targets, batch_size, cost_pe
     if 'sample_exit_level_map' in things_of_interest:
 
         correct_number_per_gate_batch = compute_correct_number_per_gate(
-                    gates_count,
+                    gate_positions,
                     things_of_interest['sample_exit_level_map'],
                     targets,
                     predicted)
         
-        metrics_to_aggregate_dict['percent_exit_per_gate'] = ([0 for _ in range(gates_count+1)], batch_size) # +1 because we count the last gate as well.
+        metrics_to_aggregate_dict['percent_exit_per_gate'] = ([0 for _ in range(len(gate_positions) + 1)], batch_size) # +1 because we count the last gate as well.
         for g, pred_tuple in correct_number_per_gate_batch.items():
             metrics_to_aggregate_dict['gated_correct_count_'+str(g)]= (pred_tuple[0], pred_tuple[1])
-            metrics_to_aggregate_dict['percent_exit_per_gate'][0][g] = pred_tuple[1]
+            relative_gate_idx = gate_positions.index(g)
+            metrics_to_aggregate_dict['percent_exit_per_gate'][0][relative_gate_idx] = pred_tuple[1]
 
     # GATE associated metrics
     if 'exit_count_optimal_gate' in things_of_interest:
         exit_count_optimal_gate = things_of_interest['exit_count_optimal_gate']
         correct_exit_count = things_of_interest['correct_exit_count']
         metrics_to_aggregate_dict['exit_count_optimal_gate'] = (exit_count_optimal_gate, batch_size)
-        metrics_to_aggregate_dict['correct_exit_count'] = (correct_exit_count, batch_size * gates_count) # the correct count is over all gates
+
+        metrics_to_aggregate_dict['correct_exit_count'] = (correct_exit_count, batch_size * len(gate_positions)) # the correct count is over all gates
      
     return metrics_to_aggregate_dict
 
-def compute_correct_number_per_gate(number_of_gates: int,
+def compute_correct_number_per_gate(gate_positions: list[int],
                                     sample_exit_level_map: torch.Tensor,
                                     targets: torch.Tensor,
                                     predicted: torch.Tensor
@@ -222,19 +225,20 @@ def compute_correct_number_per_gate(number_of_gates: int,
     """
     Computes the number of correct predictions a gate made only on the samples that it exited.
 
-    :param number_of_gates Number of gates in the dynn. We need this in case some gates are never reached
+    :param gate_positions Positions of each gate in the dynn
     :param sample_exit_level_map: A tensor the same size as targets that holds the exit level for each sample
     :param targets: ground truths
     :param predicted: predictions of the dynamic network
     :return: A map  where the key is gate_idx and the value is a tuple (correct_count, total_predictions_of_gate_count)
     """
     result_map = {}
-    for gate_idx in range(number_of_gates+1):
-        gate_predictions_idx = (sample_exit_level_map == gate_idx).nonzero()
+    for relative_gate_idx, abs_gate_idx in enumerate(gate_positions):
+        gate_predictions_idx = (sample_exit_level_map == relative_gate_idx).nonzero()
         pred_count = len(gate_predictions_idx)
         correct_pred_count = torch.sum((predicted[gate_predictions_idx].eq(targets[gate_predictions_idx]))).item()
-        result_map[gate_idx] = (correct_pred_count, pred_count)
+        result_map[abs_gate_idx] = (correct_pred_count, pred_count)
     return result_map
+
 
 def compute_cost(num_exits_per_gate, cost_per_exit):
     cost_per_gate = [
