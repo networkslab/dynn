@@ -140,7 +140,7 @@ def train(epoch):
     for batch_idx, (inputs, targets) in enumerate(train_loader):
         inputs, targets = inputs.to(device), targets.to(device)
         optimizer.zero_grad()
-        outputs, _, _ = net(inputs)
+        outputs, _ = net(inputs)
         loss = criterion(outputs, targets)
         loss.backward()
         optimizer.step()
@@ -165,7 +165,7 @@ def test(epoch):
     with torch.no_grad():
         for batch_idx, (inputs, targets) in enumerate(test_loader):
             inputs, targets = inputs.to(device), targets.to(device)
-            outputs, _, _ = net(inputs)
+            outputs, _ = net(inputs)
             loss = criterion(outputs, targets)
 
             test_loss += loss.item()
