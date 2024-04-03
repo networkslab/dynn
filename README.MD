@@ -17,12 +17,12 @@ You can then choose to run JEI-DNN directly on some of the already supported dat
 1. Download the weights for the 7-layer vision transformer T2T-ViT-7 trained on Imagenet:  from https://github.com/yitu-opensource/T2T-ViT and store them locally. 
 2. To run the following, making sure you update the `--weights-path` parameter below:
 ```
-python transfer_learning.py --lr 0.05 --b 64 --num-classes 10 --img-size 224 --transfer-learning True --weights-path model_weights/71.7_T2T_ViT_7.pth.tar
+python transfer_learning.py --lr 0.05 --b 64 --dataset svhn --weights-path model_weights/71.7_T2T_ViT_7.pth.tar
 ```
 
 ### Run JEI-DNN on supported datasets.
 1. Download the model checkpoints from this [google drive](https://drive.google.com/drive/folders/1kyAVHtTKNx-h_pgpm_9cqktF8Ce6ZiAg?usp=sharing)  and place each in the appropriate checkpoint folder (by dataset and architecture `checkpoint/checkpoint_DATASET_ARCH/`).
-2. Make sure the checkpoint path matches the path in train_dynn.py for that dataset.
+2. Make sure the checkpoint path matches the path in train_dynn.py for that dataset (For example, for [SVHN](https://github.com/networkslab/dynn/blob/main/src/train_dynn.py#L128)).
 3. You can now train JEI-DNN for dynamic inference. You can specify the dataset, the architecture, number of epochs and the `ce_ic_tradeoff`. Higher values of `ce_ic_tradeoff` mean the model is trained to exit earlier, at the cost of losing accuracy. A full list of arguments can be found in `src/train_dynn,py`
 ```
 python train_dynn.py --ce_ic_tradeoff 0.15 --dataset cifar10 --arch t2t_vit_7 --num_epoch 15;
